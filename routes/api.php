@@ -28,6 +28,7 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/signup', [AuthController::class, 'signup']);
 Route::post('/auth/logout', [AuthController::class, 'logout']);
 Route::post('/merchant-accounts', [AuthController::class, 'createMerchantAccount']);
+Route::get('/client/profile', [ClientProfileController::class, 'show']);
 Route::put('/client/profile', [ClientProfileController::class, 'update']);
 Route::post('/client/profile/avatar', [ClientProfileController::class, 'uploadAvatar']);
 Route::get('/business-accounts/current', [BusinessAccountController::class, 'current']);

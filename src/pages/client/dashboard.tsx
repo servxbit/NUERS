@@ -709,6 +709,7 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
 
   const boundTin = resolveBoundTin(clientProfile?.tin, authProfile?.tin, clientAccount?.tin);
   const hasBoundTin = isValidTin(boundTin);
+  const isClientAccountActive = (clientAccount?.status ?? "").toLowerCase() === "active";
   const payload = hasBoundTin ? barcodePayload(boundTin) : "";
   const avatarSrc = avatarPreview || publicAssetUrl(clientProfile?.profile_photo_url || authProfile?.profile_photo_url);
   const clientDisplayName = clientProfile?.full_name || authProfile?.full_name || clientAccount?.full_name || user?.email || "Client account";
@@ -1351,7 +1352,26 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       </section>
       )}
 
-      {view === "barcode" && (
+      {view === "barcode" && !isClientAccountActive && (
+      <section id="client-barcode-locked" className="scroll-mt-24">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center px-6 py-14 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <h2 className="text-lg font-semibold text-foreground">TIN Barcode is hidden</h2>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
+              Your client account must be active before NUERS can show or generate your TIN barcode.
+            </p>
+            <Badge variant="outline" className="mt-4 capitalize">
+              Account status: {clientAccount?.status?.replace(/_/g, " ") || "pending"}
+            </Badge>
+          </CardContent>
+        </Card>
+      </section>
+      )}
+
+      {view === "barcode" && isClientAccountActive && (
       <section id="client-barcode" className="scroll-mt-24">
         <Card className="overflow-hidden">
           <CardHeader className="border-b bg-slate-50/80 pb-4">

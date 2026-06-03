@@ -35,6 +35,12 @@ class DashboardController extends Controller
                 ->header('Cache-Control', 'private, max-age=15');
         }
 
+        if ($portal === 'client') {
+            return response()
+                ->json($this->clientPayload($request))
+                ->header('Cache-Control', 'private, no-store');
+        }
+
         return response()->json($this->storedDashboardPayload($portal));
     }
 
@@ -75,6 +81,142 @@ class DashboardController extends Controller
             'series' => $series,
             'lists' => $lists,
         ];
+    }
+
+    private function clientPayload(Request $request): array
+    {
+        $payload = $this->storedDashboardPayload('client');
+        $payload['lists']['notifications'] = $this->clientNotificationRows($request);
+
+        return $payload;
+    }
+
+    private function clientNotificationRows(Request $request): array
+    {
+        $user = $this->userFromRequest($request);
+
+        if (! $user) {
+            return [];
+        }
+
+        $profile = $this->tableExists('profiles')
+            ? DB::table('profiles')->where('id', $user->id)->first()
+            : null;
+
+        $account = null;
+        if ($this->tableExists('client_accounts')) {
+            $accountQuery = DB::table('client_accounts')->where('user_id', $user->id);
+
+            if (! empty($user->email)) {
+                $accountQuery->orWhere('email', $user->email);
+            }
+
+            $account = $accountQuery->first();
+        }
+
+        $rows = collect();
+        $accountStatus = strtolower((string) ($account?->status ?? ''));
+        $tinValues = $this->tinVariants($profile?->tin ?? null, $account?->tin ?? null);
+
+        if ($account && $accountStatus !== 'active') {
+            $rows->push($this->item(
+                'Account pending activation',
+                'TIN barcode and scan posting are hidden until this client account is active.',
+                $this->headline((string) $account->status),
+                'Account',
+                null,
+                null,
+                [
+                    'account_id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'user_id' => (int) $user->id,
+                ],
+            ));
+        }
+
+        if ($account && $accountStatus === 'active' && ! empty($tinValues)) {
+            $rows->push($this->item(
+                'TIN barcode active',
+                'Your active client account can receive business transaction scans matched to your bound TIN.',
+                'Active',
+                'Security',
+                null,
+                null,
+                [
+                    'account_id' => $account->id,
+                    'account_number' => $account->account_number,
+                    'tin' => reset($tinValues),
+                    'user_id' => (int) $user->id,
+                ],
+            ));
+        }
+
+        if (! empty($tinValues) && $this->tableExists('transaction_receipts')) {
+            DB::table('transaction_receipts')
+                ->whereIn('buyer_tin', $tinValues)
+                ->orderByDesc(DB::raw('COALESCE(issued_at, created_at)'))
+                ->limit(4)
+                ->get()
+                ->each(function ($receipt) use ($rows, $user, $account) {
+                    $rows->push($this->item(
+                        'Receipt '.$receipt->receipt_number,
+                        "{$receipt->merchant_name} issued {$receipt->receipt_number} to your account.",
+                        $this->headline((string) $receipt->status),
+                        'Receipt',
+                        (float) $receipt->total_due,
+                        null,
+                        [
+                            'receipt_id' => $receipt->id,
+                            'receipt_number' => $receipt->receipt_number,
+                            'merchant_name' => $receipt->merchant_name,
+                            'account_id' => $account?->id,
+                            'user_id' => (int) $user->id,
+                        ],
+                    ));
+                });
+        }
+
+        if (! empty($tinValues) && $this->tableExists('merchant_transactions')) {
+            $query = DB::table('merchant_transactions')
+                ->whereIn('merchant_transactions.customer_tin', $tinValues)
+                ->orderByDesc('merchant_transactions.created_at')
+                ->limit(4);
+
+            if ($this->tableExists('merchants')) {
+                $query
+                    ->leftJoin('merchants', 'merchant_transactions.merchant_id', '=', 'merchants.id')
+                    ->select('merchant_transactions.*', 'merchants.business_name as merchant_name');
+            } else {
+                $query->select('merchant_transactions.*');
+            }
+
+            $query->get()->each(function ($transaction) use ($rows, $user, $account) {
+                $merchantName = $transaction->merchant_name ?? 'Business account';
+                $reference = $transaction->transaction_ref ?: $transaction->id;
+
+                $rows->push($this->item(
+                    'Transaction '.$reference,
+                    "{$merchantName} posted a {$this->money((float) $transaction->amount)} transaction to your account.",
+                    $this->headline((string) $transaction->status),
+                    'Payment',
+                    (float) $transaction->amount,
+                    null,
+                    [
+                        'transaction_id' => $transaction->id,
+                        'transaction_ref' => $reference,
+                        'merchant_name' => $merchantName,
+                        'account_id' => $account?->id,
+                        'user_id' => (int) $user->id,
+                    ],
+                ));
+            });
+        }
+
+        return $rows
+            ->unique(fn ($row) => $row['title'].'|'.($row['metadata']['receipt_id'] ?? $row['metadata']['transaction_id'] ?? ''))
+            ->take(6)
+            ->values()
+            ->all();
     }
 
     private function superAdminPayload(): array
@@ -1313,6 +1455,52 @@ class DashboardController extends Controller
             ->map(fn ($row) => $this->normalizeListRow($row))
             ->values()
             ->toArray();
+    }
+
+    private function userFromRequest(Request $request): ?object
+    {
+        $token = $request->bearerToken();
+
+        if (! $token || ! $this->tableExists('users')) {
+            return null;
+        }
+
+        return DB::table('users')->where('api_token', $token)->first();
+    }
+
+    private function tinVariants(?string ...$values): array
+    {
+        $variants = [];
+
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            $digits = preg_replace('/\D+/', '', $value) ?: '';
+
+            foreach ([$value, $digits, $this->formatTin($digits)] as $variant) {
+                $variant = trim((string) $variant);
+                if ($variant !== '') {
+                    $variants[] = $variant;
+                }
+            }
+        }
+
+        return array_values(array_unique($variants));
+    }
+
+    private function formatTin(string $digits): string
+    {
+        if (strlen($digits) < 9) {
+            return $digits;
+        }
+
+        $parts = [substr($digits, 0, 3), substr($digits, 3, 3), substr($digits, 6, 3)];
+        $branch = substr($digits, 9);
+
+        if ($branch !== '') {
+            $parts[] = $branch;
+        }
+
+        return implode('-', array_filter($parts, fn ($part) => $part !== ''));
     }
 
     private function normalizeListRow(object $row): array

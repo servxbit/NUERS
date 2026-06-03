@@ -13,6 +13,17 @@ use Illuminate\Validation\Rule;
 
 class ClientProfileController extends Controller
 {
+    public function show(Request $request): JsonResponse
+    {
+        $user = $this->userFromRequest($request);
+
+        abort_unless($user, 401, 'Authenticated Client session is required.');
+
+        return response()->json([
+            'data' => $this->clientPayload($user, $request),
+        ]);
+    }
+
     public function update(Request $request): JsonResponse
     {
         $user = $this->userFromRequest($request);
@@ -45,10 +56,16 @@ class ClientProfileController extends Controller
             ]);
         }
 
-        $account = DB::table('client_accounts')->where('user_id', $user->id)->first();
+        $accountQuery = DB::table('client_accounts')->where('user_id', $user->id);
+
+        if (! empty($user->email)) {
+            $accountQuery->orWhere('email', $user->email);
+        }
+
+        $account = $accountQuery->first();
 
         if ($account) {
-            DB::table('client_accounts')->where('user_id', $user->id)->update([
+            DB::table('client_accounts')->where('id', $account->id)->update([
                 'full_name' => $validated['full_name'],
                 'email' => $validated['email'] ?: $user->email,
                 'mobile' => $validated['mobile'] ?? null,
@@ -106,7 +123,13 @@ class ClientProfileController extends Controller
     private function clientPayload(object $user, Request $request): array
     {
         $profile = DB::table('profiles')->where('id', $user->id)->first();
-        $account = DB::table('client_accounts')->where('user_id', $user->id)->first();
+        $accountQuery = DB::table('client_accounts')->where('user_id', $user->id);
+
+        if (! empty($user->email)) {
+            $accountQuery->orWhere('email', $user->email);
+        }
+
+        $account = $accountQuery->first();
 
         return [
             'profile' => $profile ? [

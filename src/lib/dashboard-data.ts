@@ -47,7 +47,16 @@ type CachedDashboardPayload = {
 };
 
 function dashboardCacheKey(portal: string) {
-  return `nuers_dashboard_${portal}`;
+  let scope = "anonymous";
+
+  try {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("nuers_api_token") : null;
+    if (token) scope = token.slice(-16);
+  } catch {
+    // Restricted browser storage should not block dashboard rendering.
+  }
+
+  return `nuers_dashboard_${portal}_${scope}`;
 }
 
 function readCachedDashboard(portal: string): CachedDashboardPayload | null {

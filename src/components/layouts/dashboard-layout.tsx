@@ -76,6 +76,8 @@ type ClientIdentity = {
   organization?: string | null;
   email?: string | null;
   profile_photo_url?: string | null;
+  status?: string | null;
+  tin?: string | null;
 };
 
 const API_TOKEN_KEY = "nuers_api_token";
@@ -1160,7 +1162,21 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
   const [businessIdentity, setBusinessIdentity] = useState<BusinessIdentity | null>(null);
   const [clientIdentity, setClientIdentity] = useState<ClientIdentity | null>(null);
   const config = portalConfig[portal];
-  const visibleGroups = cleanGroupsForPortal(portal, config);
+  const isClientAccountActive = (clientIdentity?.status ?? "").toLowerCase() === "active";
+  const visibleGroups = useMemo(() => {
+    const groups = cleanGroupsForPortal(portal, config);
+
+    if (portal !== "client" || isClientAccountActive) {
+      return groups;
+    }
+
+    return groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.href !== "/client/barcode"),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [config, isClientAccountActive, portal]);
   const visibleToolItems =
     portal === "super-admin"
       ? superAdminToolItems
@@ -1224,7 +1240,41 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
       organization: profile?.organization,
       email: user?.email,
       profile_photo_url: profile?.profile_photo_url,
+      status: null,
+      tin: profile?.tin,
     });
+
+    let cancelled = false;
+
+    async function fetchClientIdentity() {
+      try {
+        const response = await apiFetch("/api/client/profile", {
+          headers: authHeaders(),
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        const nextProfile = payload?.data?.profile ?? {};
+        const nextAccount = payload?.data?.account ?? {};
+
+        if (!cancelled && response.ok) {
+          setClientIdentity((current) => ({
+            ...(current ?? {}),
+            full_name: nextProfile.full_name ?? nextAccount.full_name ?? current?.full_name,
+            organization: nextProfile.organization ?? current?.organization,
+            email: nextAccount.email ?? nextProfile.email ?? current?.email,
+            profile_photo_url: nextProfile.profile_photo_url ?? current?.profile_photo_url,
+            status: nextAccount.status ?? null,
+            tin: nextAccount.tin ?? nextProfile.tin ?? current?.tin,
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setClientIdentity((current) => ({ ...(current ?? {}), status: null }));
+        }
+      }
+    }
+
+    fetchClientIdentity();
 
     function handleClientProfileUpdate(event: Event) {
       const detail = (event as CustomEvent<ClientIdentity>).detail;
@@ -1236,9 +1286,10 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
     window.addEventListener("nuers:client-profile-updated", handleClientProfileUpdate);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("nuers:client-profile-updated", handleClientProfileUpdate);
     };
-  }, [portal, profile?.full_name, profile?.organization, profile?.profile_photo_url, user?.email]);
+  }, [portal, profile?.full_name, profile?.organization, profile?.profile_photo_url, profile?.tin, user?.email]);
 
   useEffect(() => {
     let cancelled = false;
