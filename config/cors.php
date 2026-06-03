@@ -10,6 +10,7 @@ return [
         'http://127.0.0.1:5173',
         'https://nuers.net',
         'https://www.nuers.net',
+        'https://control.e-lotto.live'
     ],
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
