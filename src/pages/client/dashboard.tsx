@@ -164,7 +164,7 @@ type PurchaseItem = {
   quantity: number;
   unitPrice: number;
   total: number;
-  taxType?: string | null;
+  taxType: string | null;
 };
 
 type TransactionRow = {
