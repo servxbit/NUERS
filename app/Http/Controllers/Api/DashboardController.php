@@ -159,10 +159,11 @@ class DashboardController extends Controller
         }
 
         $start = now()->copy()->subMonths(5)->startOfMonth();
+        [$yearExpression, $monthExpression] = $this->monthPartExpressions('created_at');
         $rows = DB::table('merchant_transactions')
-            ->selectRaw('YEAR(created_at) as year_value, MONTH(created_at) as month_value, SUM(amount) as monthly_revenue')
+            ->selectRaw("{$yearExpression} as year_value, {$monthExpression} as month_value, SUM(amount) as monthly_revenue")
             ->where('created_at', '>=', $start)
-            ->groupByRaw('YEAR(created_at), MONTH(created_at)')
+            ->groupByRaw("{$yearExpression}, {$monthExpression}")
             ->get()
             ->keyBy(fn ($row) => "{$row->year_value}-{$row->month_value}");
 
@@ -855,10 +856,12 @@ class DashboardController extends Controller
         $rows = [];
 
         if ($transactions) {
+            [$yearExpression, $monthExpression] = $this->monthPartExpressions('created_at');
+
             (clone $transactions)
-                ->selectRaw('YEAR(created_at) as year_value, MONTH(created_at) as month_value, SUM(amount) as revenue, SUM(vat_amount) as vat')
+                ->selectRaw("{$yearExpression} as year_value, {$monthExpression} as month_value, SUM(amount) as revenue, SUM(vat_amount) as vat")
                 ->where('created_at', '>=', $start)
-                ->groupByRaw('YEAR(created_at), MONTH(created_at)')
+                ->groupByRaw("{$yearExpression}, {$monthExpression}")
                 ->get()
                 ->each(function ($row) use (&$rows) {
                     $key = "{$row->year_value}-{$row->month_value}";
@@ -869,11 +872,14 @@ class DashboardController extends Controller
 
         $invoices = $this->businessAccountStandaloneInvoices($merchant);
         if ($invoices) {
+            $invoiceDateExpression = 'COALESCE(issue_date, DATE(created_at))';
+            [$yearExpression, $monthExpression] = $this->monthPartExpressions($invoiceDateExpression);
+
             (clone $invoices)
-                ->selectRaw('YEAR(COALESCE(issue_date, DATE(created_at))) as year_value, MONTH(COALESCE(issue_date, DATE(created_at))) as month_value, SUM(total_amount) as revenue, SUM(vat_amount) as vat')
+                ->selectRaw("{$yearExpression} as year_value, {$monthExpression} as month_value, SUM(total_amount) as revenue, SUM(vat_amount) as vat")
                 ->whereIn('status', self::BUSINESS_POSTED_INVOICE_STATUSES)
-                ->whereRaw('COALESCE(issue_date, DATE(created_at)) >= ?', [$start->toDateString()])
-                ->groupByRaw('YEAR(COALESCE(issue_date, DATE(created_at))), MONTH(COALESCE(issue_date, DATE(created_at)))')
+                ->whereRaw("{$invoiceDateExpression} >= ?", [$start->toDateString()])
+                ->groupByRaw("{$yearExpression}, {$monthExpression}")
                 ->get()
                 ->each(function ($row) use (&$rows) {
                     $key = "{$row->year_value}-{$row->month_value}";
@@ -1227,6 +1233,24 @@ class DashboardController extends Controller
         }
 
         return DB::table('transaction_receipts')->where('merchant_id', $merchant->id);
+    }
+
+    private function monthPartExpressions(string $dateExpression): array
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => [
+                "CAST(strftime('%Y', {$dateExpression}) AS INTEGER)",
+                "CAST(strftime('%m', {$dateExpression}) AS INTEGER)",
+            ],
+            'pgsql' => [
+                "EXTRACT(YEAR FROM {$dateExpression})",
+                "EXTRACT(MONTH FROM {$dateExpression})",
+            ],
+            default => [
+                "YEAR({$dateExpression})",
+                "MONTH({$dateExpression})",
+            ],
+        };
     }
 
     private function storedLists(string $portal): array
