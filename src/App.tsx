@@ -1,0 +1,358 @@
+import { Routes, Route, Navigate } from "react-router-dom";
+import { LandingPage } from "@/pages/landing";
+import { LoginPage } from "@/pages/auth/login";
+import { RegisterPage } from "@/pages/auth/register";
+import { DashboardLayout } from "@/components/layouts/dashboard-layout";
+import { useAuth } from "@/lib/auth";
+import { MerchantDashboard } from "@/pages/merchant/dashboard";
+import { MerchantTransactions } from "@/pages/merchant/transactions";
+import { MerchantReceipts } from "@/pages/merchant/receipts";
+import { MerchantVatReports } from "@/pages/merchant/vat-reports";
+import { MerchantBilling } from "@/pages/merchant/billing";
+import { MerchantPosSettings } from "@/pages/merchant/pos-settings";
+import { MerchantApiKeys } from "@/pages/merchant/api-keys";
+import { MerchantProfile } from "@/pages/merchant/profile";
+import { MerchantBranches } from "@/pages/merchant/branches";
+import { MerchantNotifications } from "@/pages/merchant/notifications";
+import { MerchantExpenses } from "@/pages/merchant/expenses";
+import { MerchantInvoices } from "@/pages/merchant/invoices";
+import { InvoiceCreate } from "@/pages/merchant/invoice-create";
+import { InvoiceDetail } from "@/pages/merchant/invoice-detail";
+import { AdminDashboard } from "@/pages/admin/dashboard";
+import { SuperAdminDashboard } from "@/pages/super-admin/dashboard";
+import { BirDashboard } from "@/pages/bir/dashboard";
+import { BirRdoManagement } from "@/pages/bir/rdo-management";
+import { RdoPortal } from "@/pages/rdo/portal";
+import { AdminRiskDetection } from "@/pages/admin/fraud";
+import { AdminTransactions } from "@/pages/admin/transactions";
+import { AdminMerchants } from "@/pages/admin/merchants";
+import { AdminTaxFilings } from "@/pages/admin/tax-filings";
+import { AdminCompliance } from "@/pages/admin/compliance";
+import { AdminAudit } from "@/pages/admin/audit";
+import { AdminUsers } from "@/pages/admin/users";
+import { AdminNotifications } from "@/pages/admin/notifications";
+import { AdminReports } from "@/pages/admin/reports";
+import { ConsumerPortal } from "@/pages/consumer/portal";
+import {
+  ClientBarcodePage,
+  ClientDashboard,
+  ClientNotificationsPage,
+  ClientReceiptsPage,
+  ClientSecurityPage,
+  ClientTransactionsPage,
+  ClientWalletPage,
+} from "@/pages/client/dashboard";
+import { ReceiptVerificationPortal } from "@/pages/verification/portal";
+import { PlatformArchitecture } from "@/pages/platform/architecture";
+import { ApiPortal } from "@/pages/api/portal";
+import { ApiKeys } from "@/pages/api/keys";
+import { ApiWebhooks } from "@/pages/api/webhooks";
+import { ApiSdks } from "@/pages/api/sdks";
+import { ApiGuides } from "@/pages/api/guides";
+import { ApiSandbox } from "@/pages/api/sandbox";
+import { ApiDocs } from "@/pages/api/docs";
+import { ApiMonitoring } from "@/pages/api/monitoring";
+import { EisGateway } from "@/pages/api/eis-gateway";
+import { EisTransmissions } from "@/pages/api/eis-transmissions";
+import { EisPerformance } from "@/pages/api/eis-performance";
+import { EisErrors } from "@/pages/api/eis-errors";
+import { TaxpayerDashboard } from "@/pages/taxpayer/dashboard";
+import { TaxpayerRegistry } from "@/pages/taxpayer/registry";
+import { BusinessRegistration } from "@/pages/taxpayer/businesses";
+import { VerificationCenter } from "@/pages/taxpayer/verification";
+import { TaxpayerPortal } from "@/pages/taxpayer/portal";
+import { UserManagement } from "@/pages/taxpayer/users";
+import { SocDashboard } from "@/pages/soc/dashboard";
+import { SystemAdmin } from "@/pages/system/admin";
+import { AnalyticsCenter } from "@/pages/analytics/center";
+// Electronic Invoicing Engine (Module 1)
+import { ElectronicInvoicingEngine } from "@/pages/engine";
+// New Modules
+import { EisHub } from "@/pages/eis/hub";
+import { InvoiceManagementCenter } from "@/pages/invoices/center";
+import { TransmissionMonitoringCenter } from "@/pages/monitoring/transmissions";
+import { ComplianceCenter } from "@/pages/compliance/center";
+import { AuditLogManagement } from "@/pages/audit/log";
+import { NotificationCenter } from "@/pages/notifications/center";
+import { CertificateManagement } from "@/pages/certificates/management";
+import { DataArchiveCenter } from "@/pages/archive/center";
+import { BCDRCenter } from "@/pages/bcdr/center";
+import { SOCOperations } from "@/pages/soc/operations";
+import { ESPAccreditation } from "@/pages/accreditation/esp";
+import { ExecutiveAnalytics } from "@/pages/executive/analytics";
+import { AIAssistant } from "@/pages/ai/assistant";
+import {
+  BirTaxIntelligenceDashboard,
+  MerchantB2BTaxCenter,
+  SuperAdminTaxOperationsCenter,
+} from "@/pages/tax-intelligence/center";
+
+function roleDefaultPath(role: string | null | undefined): string {
+  if (role === "admin" || role === "super_admin") return "/super-admin";
+  if (role === "bir") return "/bir";
+  if (role === "rdo") return "/rdo";
+  if (role === "merchant") return "/merchant";
+  if (role === "consumer" || role === "client") return "/client";
+  return "/super-admin";
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function RequireRole({ role, children }: { role: string | string[]; children: React.ReactNode }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  const allowedRoles = Array.isArray(role) ? role : [role];
+  if (profile && !allowedRoles.includes(profile.role)) return <Navigate to={roleDefaultPath(profile.role)} replace />;
+  return <>{children}</>;
+}
+
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (user) return <Navigate to={roleDefaultPath(profile?.role)} replace />;
+  return <>{children}</>;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/verify" element={<ReceiptVerificationPortal />} />
+      <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
+      <Route path="/register" element={<RegisterPage />} />
+
+      {/* Super Admin Portal */}
+      <Route path="/super-admin" element={<RequireRole role={["admin", "super_admin"]}><DashboardLayout portal="super-admin" /></RequireRole>}>
+        <Route index element={<SuperAdminDashboard />} />
+        <Route path="transactions" element={<AdminTransactions />} />
+        <Route path="revenue-analytics" element={<ExecutiveAnalytics />} />
+        <Route path="blueprint" element={<PlatformArchitecture />} />
+        <Route path="merchants" element={<AdminMerchants />} />
+        <Route path="bir-accounts" element={<AdminUsers />} />
+        <Route path="client-accounts" element={<UserManagement />} />
+        <Route path="users-rbac" element={<AdminUsers />} />
+        <Route path="subscriptions" element={<MerchantBilling />} />
+        <Route path="compliance" element={<AdminCompliance />} />
+        <Route path="fraud" element={<AdminRiskDetection />} />
+        <Route path="tax-filings" element={<AdminTaxFilings />} />
+        <Route path="reports" element={<AdminReports />} />
+        <Route path="ai-recommendations" element={<AIAssistant />} />
+        <Route path="tax-operations" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="tax-intelligence" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="tax-rules" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="fraud-models" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="reconciliation" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="tax-analytics" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="graph" element={<SuperAdminTaxOperationsCenter />} />
+        <Route path="security" element={<SocDashboard />} />
+        <Route path="soc-operations" element={<SOCOperations />} />
+        <Route path="audit" element={<AuditLogManagement />} />
+        <Route path="certificates" element={<CertificateManagement />} />
+        <Route path="mfa-device-trust" element={<SystemAdmin />} />
+        <Route path="api-platform" element={<ApiPortal />} />
+        <Route path="eis-readiness" element={<EisHub />} />
+        <Route path="eis-transmissions" element={<EisTransmissions />} />
+        <Route path="eis-gateway" element={<EisGateway />} />
+        <Route path="api-keys" element={<ApiKeys />} />
+        <Route path="webhooks" element={<ApiWebhooks />} />
+        <Route path="payment-gateways" element={<ApiMonitoring />} />
+        <Route path="system-health" element={<SystemAdmin />} />
+        <Route path="backups" element={<BCDRCenter />} />
+        <Route path="data-archive" element={<DataArchiveCenter />} />
+        <Route path="notifications" element={<NotificationCenter />} />
+      </Route>
+
+      {/* BIR / Regulator Portal */}
+      <Route path="/bir" element={<RequireRole role={["admin", "bir", "super_admin"]}><DashboardLayout portal="bir" /></RequireRole>}>
+        <Route index element={<BirDashboard />} />
+        <Route path="rdo-registration" element={<BirRdoManagement />} />
+        <Route path="tax-intelligence" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="vat-reconciliation" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="invoice-matching" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="network" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="risk-scoring" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="ai-audit" element={<BirTaxIntelligenceDashboard />} />
+        <Route path="eis-readiness" element={<EisHub />} />
+        <Route path="eis-transmissions" element={<EisTransmissions />} />
+      </Route>
+
+      {/* RDO Portal */}
+      <Route path="/rdo" element={<RequireRole role={["rdo", "bir", "admin", "super_admin"]}><DashboardLayout portal="rdo" /></RequireRole>}>
+        <Route index element={<RdoPortal />} />
+      </Route>
+
+      {/* Business Account Portal */}
+      <Route path="/merchant" element={<RequireRole role={["merchant", "admin", "super_admin"]}><DashboardLayout portal="merchant" /></RequireRole>}>
+        <Route index element={<MerchantDashboard />} />
+        <Route path="transactions" element={<MerchantTransactions />} />
+        <Route path="receipts" element={<MerchantReceipts />} />
+        <Route path="vat-reports" element={<MerchantVatReports />} />
+        <Route path="billing" element={<MerchantBilling />} />
+        <Route path="pos-settings" element={<MerchantPosSettings />} />
+        <Route path="api-keys" element={<MerchantApiKeys />} />
+        <Route path="profile" element={<MerchantProfile />} />
+        <Route path="branches" element={<MerchantBranches />} />
+        <Route path="notifications" element={<MerchantNotifications />} />
+        <Route path="expenses" element={<MerchantExpenses />} />
+        <Route path="invoices" element={<MerchantInvoices />} />
+        <Route path="b2b-tax" element={<MerchantB2BTaxCenter />} />
+        <Route path="output-vat" element={<Navigate to="/merchant/b2b-tax" replace />} />
+        <Route path="input-vat" element={<Navigate to="/merchant/b2b-tax" replace />} />
+        <Route path="invoice-matching" element={<Navigate to="/merchant/b2b-tax" replace />} />
+        <Route path="withholding-tax" element={<Navigate to="/merchant/b2b-tax" replace />} />
+        <Route path="suppliers" element={<Navigate to="/merchant/b2b-tax" replace />} />
+        <Route path="invoices/create" element={<InvoiceCreate />} />
+        <Route path="invoices/recurring" element={<Navigate to="/merchant/invoices" replace />} />
+        <Route path="invoices/bulk" element={<Navigate to="/merchant/invoices" replace />} />
+        <Route path="invoices/:id" element={<InvoiceDetail />} />
+      </Route>
+
+      {/* Admin / BIR Console */}
+      <Route path="/admin" element={<RequireRole role={["admin", "super_admin"]}><DashboardLayout portal="admin" /></RequireRole>}>
+        <Route index element={<AdminDashboard />} />
+        <Route path="transactions" element={<AdminTransactions />} />
+        <Route path="fraud" element={<AdminRiskDetection />} />
+        <Route path="merchants" element={<AdminMerchants />} />
+        <Route path="tax-filings" element={<AdminTaxFilings />} />
+        <Route path="compliance" element={<AdminCompliance />} />
+        <Route path="audit" element={<AdminAudit />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="notifications" element={<AdminNotifications />} />
+        <Route path="reports" element={<AdminReports />} />
+      </Route>
+
+      {/* Consumer Portal */}
+      <Route path="/consumer" element={<RequireAuth><DashboardLayout portal="consumer" /></RequireAuth>}>
+        <Route index element={<ConsumerPortal />} />
+      </Route>
+      <Route path="/client" element={<RequireRole role={["client", "consumer", "admin", "super_admin"]}><DashboardLayout portal="client" /></RequireRole>}>
+        <Route index element={<ClientDashboard />} />
+        <Route path="transactions" element={<ClientTransactionsPage />} />
+        <Route path="receipts" element={<ClientReceiptsPage />} />
+        <Route path="barcode" element={<ClientBarcodePage />} />
+        <Route path="wallet" element={<ClientWalletPage />} />
+        <Route path="notifications" element={<ClientNotificationsPage />} />
+        <Route path="security" element={<ClientSecurityPage />} />
+      </Route>
+
+      {/* API Platform */}
+      <Route path="/api" element={<RequireAuth><DashboardLayout portal="api" /></RequireAuth>}>
+        <Route index element={<ApiPortal />} />
+        <Route path="keys" element={<ApiKeys />} />
+        <Route path="webhooks" element={<ApiWebhooks />} />
+        <Route path="sdks" element={<ApiSdks />} />
+        <Route path="guides" element={<ApiGuides />} />
+        <Route path="sandbox" element={<ApiSandbox />} />
+        <Route path="docs" element={<ApiDocs />} />
+        <Route path="monitoring" element={<ApiMonitoring />} />
+        <Route path="eis" element={<EisGateway />} />
+        <Route path="eis/transmissions" element={<EisTransmissions />} />
+        <Route path="eis/performance" element={<EisPerformance />} />
+        <Route path="eis/errors" element={<EisErrors />} />
+      </Route>
+
+      {/* Taxpayer Management */}
+      <Route path="/taxpayer" element={<RequireAuth><DashboardLayout portal="taxpayer" /></RequireAuth>}>
+        <Route index element={<TaxpayerDashboard />} />
+        <Route path="registry" element={<TaxpayerRegistry />} />
+        <Route path="businesses" element={<BusinessRegistration />} />
+        <Route path="verification" element={<VerificationCenter />} />
+        <Route path="portal" element={<TaxpayerPortal />} />
+        <Route path="users" element={<UserManagement />} />
+      </Route>
+
+      {/* Electronic Invoicing Engine (Module 1) */}
+      <Route path="/engine" element={<RequireAuth><DashboardLayout portal="engine" /></RequireAuth>}>
+        <Route index element={<ElectronicInvoicingEngine />} />
+      </Route>
+
+      {/* EIS Integration Hub */}
+      <Route path="/eis" element={<RequireAuth><DashboardLayout portal="eis" /></RequireAuth>}>
+        <Route index element={<EisHub />} />
+        <Route path="transmissions" element={<EisTransmissions />} />
+      </Route>
+
+      {/* Invoice Management Center */}
+      <Route path="/invoices" element={<RequireAuth><DashboardLayout portal="invoices" /></RequireAuth>}>
+        <Route index element={<InvoiceManagementCenter />} />
+      </Route>
+
+      {/* Transmission Monitoring */}
+      <Route path="/monitoring" element={<RequireAuth><DashboardLayout portal="monitoring" /></RequireAuth>}>
+        <Route index element={<TransmissionMonitoringCenter />} />
+      </Route>
+
+      {/* Compliance Center */}
+      <Route path="/compliance" element={<RequireAuth><DashboardLayout portal="compliance" /></RequireAuth>}>
+        <Route index element={<ComplianceCenter />} />
+      </Route>
+
+      {/* Audit Log */}
+      <Route path="/audit" element={<RequireAuth><DashboardLayout portal="audit" /></RequireAuth>}>
+        <Route index element={<AuditLogManagement />} />
+      </Route>
+
+      {/* Notifications */}
+      <Route path="/notifications" element={<RequireAuth><DashboardLayout portal="notifications" /></RequireAuth>}>
+        <Route index element={<NotificationCenter />} />
+      </Route>
+
+      {/* Certificates */}
+      <Route path="/certificates" element={<RequireAuth><DashboardLayout portal="certificates" /></RequireAuth>}>
+        <Route index element={<CertificateManagement />} />
+      </Route>
+
+      {/* Data Archive */}
+      <Route path="/archive" element={<RequireAuth><DashboardLayout portal="archive" /></RequireAuth>}>
+        <Route index element={<DataArchiveCenter />} />
+      </Route>
+
+      {/* BCDR */}
+      <Route path="/bcdr" element={<RequireAuth><DashboardLayout portal="bcdr" /></RequireAuth>}>
+        <Route index element={<BCDRCenter />} />
+      </Route>
+
+      {/* SOC */}
+      <Route path="/soc" element={<RequireAuth><DashboardLayout portal="soc" /></RequireAuth>}>
+        <Route index element={<SocDashboard />} />
+        <Route path="operations" element={<SOCOperations />} />
+      </Route>
+
+      {/* ESP Accreditation */}
+      <Route path="/accreditation" element={<RequireAuth><DashboardLayout portal="accreditation" /></RequireAuth>}>
+        <Route index element={<ESPAccreditation />} />
+      </Route>
+
+      {/* Executive Analytics */}
+      <Route path="/executive" element={<RequireAuth><DashboardLayout portal="executive" /></RequireAuth>}>
+        <Route index element={<ExecutiveAnalytics />} />
+      </Route>
+
+      {/* AI Assistant */}
+      <Route path="/ai" element={<RequireAuth><DashboardLayout portal="ai" /></RequireAuth>}>
+        <Route index element={<AIAssistant />} />
+      </Route>
+
+      {/* System */}
+      <Route path="/system" element={<RequireAuth><DashboardLayout portal="system" /></RequireAuth>}>
+        <Route index element={<SystemAdmin />} />
+      </Route>
+
+      {/* Enterprise Architecture */}
+      <Route path="/platform" element={<RequireRole role={["admin", "super_admin", "bir"]}><DashboardLayout portal="platform" /></RequireRole>}>
+        <Route index element={<PlatformArchitecture />} />
+      </Route>
+
+      {/* Analytics (legacy) */}
+      <Route path="/analytics" element={<RequireAuth><DashboardLayout portal="admin" /></RequireAuth>}>
+        <Route index element={<AnalyticsCenter />} />
+      </Route>
+    </Routes>
+  );
+}

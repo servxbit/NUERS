@@ -1,0 +1,11 @@
+{
+  "src/main.tsx": {
+    "file": "assets/main-CNTClEAM.js",
+    "name": "main",
+    "src": "src/main.tsx",
+    "isEntry": true,
+    "css": [
+      "assets/main-D_-6NxNK.css"
+    ]
+  }
+}
