@@ -23,7 +23,7 @@ class BusinessAccountController extends Controller
         abort_unless($merchant, 404, 'No Business Account registry record is linked to this login.');
 
         return response()->json([
-            'data' => $this->merchantPayload($merchant),
+            'data' => $this->merchantPayload($merchant, $request),
         ]);
     }
 
@@ -82,7 +82,7 @@ class BusinessAccountController extends Controller
         $fresh = DB::table('merchants')->where('id', $merchant->id)->first();
 
         return response()->json([
-            'data' => $this->merchantPayload($fresh),
+            'data' => $this->merchantPayload($fresh, $request),
         ]);
     }
 
@@ -124,7 +124,7 @@ class BusinessAccountController extends Controller
         $fresh = DB::table('merchants')->where('id', $merchant->id)->first();
 
         return response()->json([
-            'data' => $this->merchantPayload($fresh),
+            'data' => $this->merchantPayload($fresh, $request),
         ]);
     }
 
@@ -143,7 +143,7 @@ class BusinessAccountController extends Controller
         if ($merchant) {
             return response()->json([
                 'data' => [
-                    ...$this->merchantPayload($merchant),
+                    ...$this->merchantPayload($merchant, $request),
                     'type' => 'business_account',
                 ],
             ]);
@@ -210,7 +210,7 @@ class BusinessAccountController extends Controller
             ->first();
     }
 
-    private function merchantPayload(object $merchant): array
+    private function merchantPayload(object $merchant, ?Request $request = null): array
     {
         return [
             'id' => (string) $merchant->id,
@@ -246,7 +246,7 @@ class BusinessAccountController extends Controller
             'last_audit_date' => $merchant->last_audit_date,
             'next_audit_date' => $merchant->next_audit_date,
             'website' => $merchant->website,
-            'logo_url' => $this->merchantColumn($merchant, 'logo_url'),
+            'logo_url' => $this->publicAssetUrl($this->merchantColumn($merchant, 'logo_url'), $request),
             'notes' => $merchant->notes,
             'created_at' => $merchant->created_at,
             'updated_at' => $merchant->updated_at,
@@ -275,6 +275,33 @@ class BusinessAccountController extends Controller
     private function merchantColumn(object $merchant, string $column): mixed
     {
         return property_exists($merchant, $column) ? $merchant->{$column} : null;
+    }
+
+    private function publicAssetUrl(?string $path, ?Request $request): ?string
+    {
+        $path = trim((string) $path);
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (preg_match('/^(https?:|data:|blob:)/i', $path)) {
+            return $path;
+        }
+
+        $path = '/'.ltrim($path, '/');
+
+        if (str_starts_with($path, '/public/')) {
+            return $path;
+        }
+
+        $baseUrl = $request ? rtrim($request->getBaseUrl(), '/') : '';
+
+        if (str_ends_with($baseUrl, '/index.php')) {
+            $baseUrl = substr($baseUrl, 0, -10);
+        }
+
+        return $baseUrl ? $baseUrl.$path : $path;
     }
 
     private function merchantStreetAddress(object $merchant): ?string
