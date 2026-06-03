@@ -14,6 +14,17 @@ return new class extends Migration
 
         $indexName = 'tax_graph_edges_scope_source_target_relationship_unique';
 
+        if ($this->isSqlite()) {
+            if (! $this->indexExists($indexName)) {
+                DB::statement(<<<SQL
+CREATE UNIQUE INDEX `{$indexName}`
+    ON `tax_graph_edges` (`scope`, `source`, `target`, `relationship`)
+SQL);
+            }
+
+            return;
+        }
+
         if ($this->indexExists($indexName)) {
             DB::statement("ALTER TABLE `tax_graph_edges` DROP INDEX `{$indexName}`");
         }
@@ -43,6 +54,14 @@ SQL);
 
         $indexName = 'tax_graph_edges_scope_source_target_relationship_unique';
 
+        if ($this->isSqlite()) {
+            if ($this->indexExists($indexName)) {
+                DB::statement("DROP INDEX `{$indexName}`");
+            }
+
+            return;
+        }
+
         if ($this->indexExists($indexName)) {
             DB::statement("ALTER TABLE `tax_graph_edges` DROP INDEX `{$indexName}`");
         }
@@ -59,6 +78,11 @@ SQL);
 
     private function indexExists(string $indexName): bool
     {
+        if ($this->isSqlite()) {
+            return collect(DB::select("PRAGMA index_list('tax_graph_edges')"))
+                ->contains(fn (object $index): bool => ($index->name ?? null) === $indexName);
+        }
+
         $database = DB::getDatabaseName();
 
         return (bool) DB::table('information_schema.statistics')
@@ -66,5 +90,10 @@ SQL);
             ->where('table_name', 'tax_graph_edges')
             ->where('index_name', $indexName)
             ->exists();
+    }
+
+    private function isSqlite(): bool
+    {
+        return DB::connection()->getDriverName() === 'sqlite';
     }
 };

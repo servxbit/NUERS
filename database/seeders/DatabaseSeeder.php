@@ -20,6 +20,17 @@ class DatabaseSeeder extends Seeder
         $now = Carbon::now();
 
         DB::table('users')->updateOrInsert(
+            ['email' => 'm.sioson@servxbit.com'],
+            [
+                'name' => 'Mark Sioson',
+                'email_verified_at' => $now,
+                'password' => Hash::make('123456'),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        );
+
+        DB::table('users')->updateOrInsert(
             ['email' => 'admin@nuers.com'],
             [
                 'name' => 'NUERS Administrator',
@@ -74,6 +85,7 @@ class DatabaseSeeder extends Seeder
             ],
         );
 
+        $servxbitAdminId = DB::table('users')->where('email', 'm.sioson@servxbit.com')->value('id');
         $adminId = DB::table('users')->where('email', 'admin@nuers.com')->value('id');
         $merchantUserId = DB::table('users')->where('email', 'customer@nuers.com')->value('id');
         $birUserId = DB::table('users')->where('email', 'bir@nuers.com')->value('id');
@@ -81,6 +93,15 @@ class DatabaseSeeder extends Seeder
         $clientUserId = DB::table('users')->where('email', 'client@nuers.com')->value('id');
 
         $profiles = [
+            [
+                'id' => $servxbitAdminId,
+                'email' => 'm.sioson@servxbit.com',
+                'role' => 'super_admin',
+                'full_name' => 'Mark Sioson',
+                'organization' => 'Servxbit',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
             [
                 'id' => $adminId,
                 'email' => 'admin@nuers.com',

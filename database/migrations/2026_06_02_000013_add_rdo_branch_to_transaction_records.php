@@ -29,27 +29,8 @@ return new class extends Migration
             }
         });
 
-        DB::statement("
-            UPDATE merchant_transactions t
-            LEFT JOIN merchants m ON t.merchant_id = m.id
-            SET
-                t.rdo_code = COALESCE(NULLIF(t.rdo_code, ''), NULLIF(m.rdo_code, '')),
-                t.rdo_name = COALESCE(NULLIF(t.rdo_name, ''), NULLIF(m.rdo_name, ''))
-            WHERE
-                (t.rdo_code IS NULL OR t.rdo_code = '' OR t.rdo_name IS NULL OR t.rdo_name = '')
-                AND (m.rdo_code IS NOT NULL OR m.rdo_name IS NOT NULL)
-        ");
-
-        DB::statement("
-            UPDATE transaction_receipts r
-            LEFT JOIN merchants m ON r.merchant_id = m.id
-            SET
-                r.rdo_code = COALESCE(NULLIF(r.rdo_code, ''), NULLIF(m.rdo_code, '')),
-                r.rdo_name = COALESCE(NULLIF(r.rdo_name, ''), NULLIF(m.rdo_name, ''))
-            WHERE
-                (r.rdo_code IS NULL OR r.rdo_code = '' OR r.rdo_name IS NULL OR r.rdo_name = '')
-                AND (m.rdo_code IS NOT NULL OR m.rdo_name IS NOT NULL)
-        ");
+        $this->backfillRdoFields('merchant_transactions');
+        $this->backfillRdoFields('transaction_receipts');
     }
 
     public function down(): void
@@ -73,5 +54,55 @@ return new class extends Migration
                 $table->dropColumn('rdo_code');
             }
         });
+    }
+
+    private function backfillRdoFields(string $table): void
+    {
+        $rows = DB::table($table)
+            ->whereNotNull('merchant_id')
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('rdo_code')
+                    ->orWhere('rdo_code', '')
+                    ->orWhereNull('rdo_name')
+                    ->orWhere('rdo_name', '');
+            })
+            ->get(['id', 'merchant_id', 'rdo_code', 'rdo_name']);
+
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        $merchants = DB::table('merchants')
+            ->whereIn('id', $rows->pluck('merchant_id')->filter()->unique()->values())
+            ->get(['id', 'rdo_code', 'rdo_name'])
+            ->keyBy('id');
+
+        foreach ($rows as $row) {
+            $merchant = $merchants->get($row->merchant_id);
+
+            if (! $merchant) {
+                continue;
+            }
+
+            $updates = [];
+
+            if ($this->isBlank($row->rdo_code) && ! $this->isBlank($merchant->rdo_code)) {
+                $updates['rdo_code'] = $merchant->rdo_code;
+            }
+
+            if ($this->isBlank($row->rdo_name) && ! $this->isBlank($merchant->rdo_name)) {
+                $updates['rdo_name'] = $merchant->rdo_name;
+            }
+
+            if ($updates !== []) {
+                DB::table($table)->where('id', $row->id)->update($updates);
+            }
+        }
+    }
+
+    private function isBlank(mixed $value): bool
+    {
+        return $value === null || $value === '';
     }
 };
