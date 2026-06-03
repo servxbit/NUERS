@@ -498,7 +498,7 @@ class DashboardController extends Controller
     private function architectureControls(): array
     {
         return [
-            $this->item('Laravel API Runtime', 'Current localhost backend', 'ready', 'Server'),
+            $this->item('Laravel API Runtime', 'Current live API backend', 'ready', 'Server'),
             $this->item('MySQL NUERS Database', $this->tableExists('migrations') ? 'Schema migrations available' : 'Schema check unavailable', $this->tableExists('migrations') ? 'ready' : 'monitoring', 'Database'),
             $this->item('RBAC + JWT Token Layer', "{$this->compactNumber($this->count('roles'))} roles / {$this->compactNumber($this->count('permissions'))} permissions", $this->rbacCoverage() > 0 ? 'ready' : 'monitoring', 'ShieldCheck'),
             $this->item('API / Webhook Gateway', "{$this->compactNumber($this->count('api_clients'))} API clients", $this->count('api_clients') > 0 ? 'ready' : 'monitoring', 'Network'),

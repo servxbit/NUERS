@@ -16,6 +16,8 @@ const staticAssets = [
   "vite.svg",
 ]
 
+const liveApiBaseUrl = (process.env.VITE_API_BASE_URL ?? "https://nuers.net/public").replace(/\/$/, "")
+
 function copyStaticAssets() {
   return {
     name: "copy-static-assets",
@@ -33,11 +35,31 @@ function copyStaticAssets() {
       }
 
       fs.writeFileSync(path.resolve(outputDir, "_redirects"), "/*    /index.html   200\n")
+      fs.writeFileSync(
+        path.resolve(outputDir, ".htaccess"),
+        `<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    RewriteRule ^ index.html [L]
+</IfModule>
+`,
+      )
     },
   }
 }
 
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_API_BASE_URL": JSON.stringify(liveApiBaseUrl),
+  },
   plugins: [react(), tailwindcss(), copyStaticAssets()],
   publicDir: false,
   build: {

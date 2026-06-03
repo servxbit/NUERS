@@ -15,6 +15,7 @@ type ApiResult<T> = { data: T | null; error: ApiError | null; count?: number | n
 type AuthListener = (event: string, session: LaravelSession | null) => void;
 
 const TOKEN_KEY = "nuers_api_token";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const listeners = new Set<AuthListener>();
 
 function storedToken() {
@@ -49,7 +50,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   try {
-    const response = await fetch(path, { ...init, headers });
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    const contentType = response.headers.get("Content-Type") ?? "";
+
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return {
+        data: null,
+        error: { message: "API endpoint did not return JSON. Check the live API deployment path." },
+      };
+    }
+
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
