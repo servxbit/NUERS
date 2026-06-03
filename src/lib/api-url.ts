@@ -26,6 +26,27 @@ export function apiUrl(path: string) {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
+export function publicAssetUrl(path?: string | null) {
+  const value = (path ?? "").trim();
+
+  if (!value) return "";
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+
+  const normalizedPath = value.startsWith("/") ? value : `/${value}`;
+
+  if (normalizedPath.startsWith("/public/")) return normalizedPath;
+  if (!API_BASE_URL) return normalizedPath;
+
+  const normalizedBase = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+
+  if (normalizedPath.startsWith(`${normalizedBase}/`)) return normalizedPath;
+  if (normalizedBase.endsWith("/public") && normalizedPath.startsWith("/uploads/")) {
+    return `${normalizedBase}${normalizedPath}`;
+  }
+
+  return normalizedPath;
+}
+
 export function apiHeaders(headers?: HeadersInit, options: { json?: boolean; auth?: boolean } = {}) {
   const nextHeaders = new Headers(headers);
 

@@ -42,7 +42,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api-url";
+import { apiFetch, publicAssetUrl } from "@/lib/api-url";
 
 type PortalType =
   | "super-admin" | "bir" | "rdo" | "merchant" | "admin" | "consumer" | "client" | "api" | "soc" | "system" | "taxpayer"
@@ -69,6 +69,13 @@ type BusinessIdentity = {
   tin?: string | null;
   logo_url?: string | null;
   status?: string | null;
+};
+
+type ClientIdentity = {
+  full_name?: string | null;
+  organization?: string | null;
+  email?: string | null;
+  profile_photo_url?: string | null;
 };
 
 const API_TOKEN_KEY = "nuers_api_token";
@@ -1045,6 +1052,7 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
         { label: "Wallet & Payments", href: "/client/wallet", icon: Wallet },
         { label: "Notifications", href: "/client/notifications", icon: Bell },
         { label: "Security", href: "/client/security", icon: ShieldCheck },
+        { label: "Profile", href: "/client/profile", icon: UserCheck },
       ],
     },
   ],
@@ -1150,6 +1158,7 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
   const navigate = useNavigate();
   const { user, profile, signOut } = useAuth();
   const [businessIdentity, setBusinessIdentity] = useState<BusinessIdentity | null>(null);
+  const [clientIdentity, setClientIdentity] = useState<ClientIdentity | null>(null);
   const config = portalConfig[portal];
   const visibleGroups = cleanGroupsForPortal(portal, config);
   const visibleToolItems =
@@ -1169,12 +1178,21 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
         : "/notifications";
   const accountName = useMemo(() => {
     if (portal === "merchant" && businessIdentity?.business_name) return businessIdentity.business_name;
-    return profile?.organization || profile?.full_name || user?.email?.split("@")[0] || config.title;
-  }, [businessIdentity?.business_name, config.title, portal, profile?.full_name, profile?.organization, user?.email]);
+    if ((portal === "client" || portal === "consumer") && (clientIdentity?.full_name || clientIdentity?.organization)) {
+      return clientIdentity.full_name || clientIdentity.organization || config.title;
+    }
+    return profile?.full_name || profile?.organization || user?.email?.split("@")[0] || config.title;
+  }, [businessIdentity?.business_name, clientIdentity?.full_name, clientIdentity?.organization, config.title, portal, profile?.full_name, profile?.organization, user?.email]);
   const accountEmail = portal === "merchant"
     ? businessIdentity?.email || user?.email
-    : user?.email;
-  const accountLogo = portal === "merchant" ? businessIdentity?.logo_url : null;
+    : portal === "client" || portal === "consumer"
+      ? clientIdentity?.email || user?.email
+      : user?.email;
+  const accountLogo = portal === "merchant"
+    ? publicAssetUrl(businessIdentity?.logo_url)
+    : portal === "client" || portal === "consumer"
+      ? publicAssetUrl(clientIdentity?.profile_photo_url || profile?.profile_photo_url)
+      : null;
   const accountInitials = initialsFor(accountName, user?.email?.slice(0, 1).toUpperCase() ?? "A");
   const roleLabel = portal === "merchant"
     ? "Business Account"
@@ -1188,12 +1206,39 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
   const profilePath = portal === "merchant"
     ? "/merchant/profile"
     : portal === "client" || portal === "consumer"
-      ? "/client/security"
+      ? "/client/profile"
       : portal === "bir"
         ? "/bir"
         : "/super-admin";
   const integrationPath = portal === "merchant" ? "/merchant/api-keys" : "/api";
   const securityPath = portal === "merchant" ? "/merchant/profile" : portal === "client" || portal === "consumer" ? "/client/security" : "/soc";
+
+  useEffect(() => {
+    if (portal !== "client" && portal !== "consumer") {
+      setClientIdentity(null);
+      return;
+    }
+
+    setClientIdentity({
+      full_name: profile?.full_name,
+      organization: profile?.organization,
+      email: user?.email,
+      profile_photo_url: profile?.profile_photo_url,
+    });
+
+    function handleClientProfileUpdate(event: Event) {
+      const detail = (event as CustomEvent<ClientIdentity>).detail;
+      if (detail) {
+        setClientIdentity((current) => ({ ...(current ?? {}), ...detail }));
+      }
+    }
+
+    window.addEventListener("nuers:client-profile-updated", handleClientProfileUpdate);
+
+    return () => {
+      window.removeEventListener("nuers:client-profile-updated", handleClientProfileUpdate);
+    };
+  }, [portal, profile?.full_name, profile?.organization, profile?.profile_photo_url, user?.email]);
 
   useEffect(() => {
     let cancelled = false;

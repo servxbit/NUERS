@@ -58,6 +58,8 @@ class IntegrationTransactionController extends Controller
                 'items' => ['nullable', 'array'],
             ]);
 
+            $this->resolveCustomerTinFromBarcode($validated);
+
             $reference = $validated['external_reference'];
             $existing = DB::table('merchant_transactions')
                 ->where('merchant_id', $merchant->id)
@@ -250,6 +252,75 @@ class IntegrationTransactionController extends Controller
         abort_unless($merchant, 404, 'Business Account for this API key was not found.');
 
         return [$apiKey, $merchant];
+    }
+
+    private function resolveCustomerTinFromBarcode(array &$payload): void
+    {
+        $explicitTin = $this->normalizeTin($payload['customer_tin'] ?? null);
+
+        if ($this->isValidTin($explicitTin)) {
+            $payload['customer_tin'] = $this->formatTin($explicitTin);
+            return;
+        }
+
+        $barcodeTin = $this->tinFromNuersBarcode($payload['customer_name'] ?? null);
+
+        if (! $this->isValidTin($barcodeTin)) {
+            return;
+        }
+
+        $formattedTin = $this->formatTin($barcodeTin);
+        $payload['customer_tin'] = $formattedTin;
+
+        $profiles = DB::table('profiles')
+            ->whereRaw($this->normalizedTinSql('tin').' = ?', [$barcodeTin])
+            ->limit(2)
+            ->get();
+
+        if ($profiles->count() === 1 && trim((string) $profiles->first()->full_name) !== '') {
+            $payload['customer_name'] = $profiles->first()->full_name;
+        }
+    }
+
+    private function tinFromNuersBarcode(?string $value): string
+    {
+        $text = trim((string) $value);
+
+        if ($text === '' || ! Str::contains(Str::upper($text), 'NUERS')) {
+            return '';
+        }
+
+        return $this->normalizeTin($text);
+    }
+
+    private function normalizeTin(?string $tin): string
+    {
+        return preg_replace('/\D+/', '', (string) $tin) ?: '';
+    }
+
+    private function isValidTin(string $tin): bool
+    {
+        $length = strlen($tin);
+
+        return $length >= 9 && $length <= 12;
+    }
+
+    private function formatTin(string $tin): string
+    {
+        $digits = substr($this->normalizeTin($tin), 0, 12);
+        $groups = array_filter([
+            substr($digits, 0, 3),
+            substr($digits, 3, 3),
+            substr($digits, 6, 3),
+            substr($digits, 9, 3),
+        ], fn (string $group): bool => $group !== '');
+
+        return implode('-', $groups);
+    }
+
+    private function normalizedTinSql(string $column): string
+    {
+        return "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({$column}, ''), '-', ''), ' ', ''), '.', ''), '/', '')";
     }
 
     private function enforceScope(object $apiKey, string $scope): void

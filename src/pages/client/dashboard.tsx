@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ElementType, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ElementType, type FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import {
   AlertCircle,
@@ -7,10 +7,14 @@ import {
   Bell,
   Building2,
   CalendarClock,
+  Camera,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   CreditCard,
   Download,
+  Eye,
   FileCheck2,
   FileSearch,
   FileText,
@@ -18,18 +22,23 @@ import {
   Landmark,
   Loader2,
   LockKeyhole,
+  Mail,
+  Phone,
   QrCode,
   Receipt,
   RefreshCw,
   Search,
+  Save,
   ShieldAlert,
   ShieldCheck,
   Smartphone,
   Store,
   TrendingUp,
+  User,
   UserCheck,
   Wallet,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +65,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useDashboardData, type DashboardListItem } from "@/lib/dashboard-data";
+import { apiFetch, publicAssetUrl, readJsonResponse } from "@/lib/api-url";
 
 type ClientProfile = {
   id: number;
@@ -65,6 +75,9 @@ type ClientProfile = {
   organization: string;
   tin: string | null;
   tin_bound_at: string | null;
+  profile_photo_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ClientAccount = {
@@ -101,12 +114,19 @@ type MerchantTransaction = {
   transaction_ref: string | null;
   amount: number;
   vat_amount: number;
+  vatable_sales?: number | null;
+  net_amount?: number | null;
   payment_method: string;
   branch: string | null;
   rdo_code?: string | null;
   rdo_name?: string | null;
   channel: string;
   transaction_type: string;
+  tax_type?: string | null;
+  document_type?: string | null;
+  bir_template_code?: string | null;
+  external_payload?: unknown;
+  customer_name?: string | null;
   customer_tin: string | null;
   status: string;
   receipt_id: string | null;
@@ -122,11 +142,29 @@ type TransactionReceipt = {
   merchant_tin: string;
   rdo_code?: string | null;
   rdo_name?: string | null;
+  receipt_type?: string | null;
+  document_type?: string | null;
+  bir_template_code?: string | null;
+  buyer_name?: string | null;
   buyer_tin: string | null;
+  gross_amount?: number | null;
+  vatable_sales?: number | null;
+  vat_exempt_sales?: number | null;
+  zero_rated_sales?: number | null;
+  vat_amount?: number | null;
   total_due: number;
+  items?: unknown;
   status: string;
   issued_at: string | null;
   created_at: string;
+};
+
+type PurchaseItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  taxType?: string | null;
 };
 
 type TransactionRow = {
@@ -142,12 +180,30 @@ type TransactionRow = {
   channel: string;
   amount: number;
   vat?: number;
+  taxLabel: string;
+  taxSubtext: string;
+  items: PurchaseItem[];
   status: string;
   receiptNumber?: string;
+  receiptId?: string | null;
+  buyerName?: string | null;
+  documentLabel?: string | null;
   date: string;
 };
 
-type ClientPageView = "overview" | "transactions" | "receipts" | "barcode" | "wallet" | "notifications" | "security";
+type ClientProfileForm = {
+  full_name: string;
+  organization: string;
+  email: string;
+  mobile: string;
+};
+
+type ClientProfilePayload = {
+  profile?: ClientProfile | null;
+  account?: ClientAccount | null;
+};
+
+type ClientPageView = "overview" | "transactions" | "receipts" | "barcode" | "wallet" | "notifications" | "security" | "profile";
 
 const clientPageMeta: Record<ClientPageView, { title: string; description: string }> = {
   overview: {
@@ -178,6 +234,10 @@ const clientPageMeta: Record<ClientPageView, { title: string; description: strin
     title: "Security Center",
     description: "Monitor MFA, TIN binding, account controls, and receipt fraud protection for your client account.",
   },
+  profile: {
+    title: "Citizen Profile",
+    description: "Manage your citizen identity, contact details, and profile picture for your NUERS client account.",
+  },
 };
 
 const legacyClientHashRoutes: Record<string, string> = {
@@ -188,6 +248,7 @@ const legacyClientHashRoutes: Record<string, string> = {
   "#wallet": "/client/wallet",
   "#notifications": "/client/notifications",
   "#security": "/client/security",
+  "#profile": "/client/profile",
 };
 
 const code39Patterns: Record<string, string> = {
@@ -277,9 +338,59 @@ function barcodePayload(tin: string) {
   return `NUERS-${normalizeTin(tin)}`;
 }
 
+function tinMatchValues(tin: string) {
+  const digits = normalizeTin(tin);
+  const formatted = formatTin(digits);
+
+  return Array.from(new Set([tin, formatted, digits, digits ? barcodePayload(digits) : ""].filter(Boolean)));
+}
+
+function tinMatchFilter(columns: string[], tin: string) {
+  return tinMatchValues(tin)
+    .flatMap((value) => columns.map((column) => `${column}.eq.${value}`))
+    .join(",");
+}
+
+function merchantTinKey(tin?: string | null) {
+  const digits = normalizeTin(tin ?? "");
+  return digits ? `tin:${digits}` : "";
+}
+
+function merchantNameKey(name?: string | null) {
+  const normalized = (name ?? "").trim().toLowerCase();
+  return normalized ? `name:${normalized}` : "";
+}
+
+function merchantDirectoryKeys(merchant: Merchant) {
+  return [
+    merchant.id,
+    merchantTinKey(merchant.tin),
+    merchantNameKey(merchant.business_name),
+  ].filter(Boolean);
+}
+
+function merchantFromDirectory(
+  directory: Record<string, Merchant>,
+  id?: string | null,
+  tin?: string | null,
+  name?: string | null,
+) {
+  return (
+    (id ? directory[id] : null) ||
+    directory[merchantTinKey(tin)] ||
+    directory[merchantNameKey(name)] ||
+    null
+  );
+}
+
 function isValidTin(value: string) {
   const digits = normalizeTin(value);
   return digits.length >= 9 && digits.length <= 12;
+}
+
+function resolveBoundTin(...values: Array<string | null | undefined>) {
+  const candidates = values.map((value) => (value ?? "").trim());
+  return candidates.find(isValidTin) ?? candidates.find(Boolean) ?? "";
 }
 
 function mysqlTimestamp(date = new Date()) {
@@ -302,6 +413,285 @@ function statusVariant(status?: string | null) {
   return "outline";
 }
 
+function numberValue(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, ""));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  const parsed = parseJsonValue(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+}
+
+function arrayFromJson(value: unknown): unknown[] {
+  const parsed = parseJsonValue(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function labelFromSnake(value?: string | null) {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "Standard tax";
+
+  return normalized
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function taxTypeLabel(value?: string | null) {
+  const normalized = (value ?? "").toLowerCase();
+
+  if (["non_vat", "non-vat", "b2", "b3"].includes(normalized)) return "Non-VAT";
+  if (["vat_exempt", "vat_exempt_invoice"].includes(normalized)) return "VAT-exempt";
+  if (["zero_rated", "zero_rated_invoice"].includes(normalized)) return "Zero-rated";
+  if (["vatable", "vat_invoice", "vat"].includes(normalized)) return "VATable";
+
+  return labelFromSnake(value);
+}
+
+function firstNumberValue(...values: unknown[]) {
+  const found = values.find((value) => value !== undefined && value !== null && value !== "");
+  return numberValue(found, 0);
+}
+
+function firstPositiveNumberValue(...values: unknown[]) {
+  const positive = values
+    .map((value) => numberValue(value, 0))
+    .find((value) => value > 0);
+
+  return positive ?? firstNumberValue(...values);
+}
+
+function purchaseItemsFromSources(transaction?: MerchantTransaction | null, receipt?: TransactionReceipt | null): PurchaseItem[] {
+  const payload = recordFromUnknown(transaction?.external_payload);
+  const payloadItems = Array.isArray(payload?.items) ? payload.items : [];
+  const receiptItems = arrayFromJson(receipt?.items);
+  const sourceItems = payloadItems.length ? payloadItems : receiptItems;
+
+  return sourceItems
+    .map((source) => {
+      const item = recordFromUnknown(source);
+      if (!item) return null;
+
+      const description = (
+        stringValue(item.description) ||
+        stringValue(item.name) ||
+        stringValue(item.item_name) ||
+        stringValue(item.item_code) ||
+        "Purchased item"
+      );
+      const quantity = Math.max(1, numberValue(item.quantity ?? item.qty, 1));
+      let unitPrice = numberValue(item.unit_price ?? item.unitPrice ?? item.price, 0);
+      let total = numberValue(item.line_total ?? item.total ?? item.subtotal ?? item.amount, quantity * unitPrice);
+
+      if (!unitPrice && total) unitPrice = total / quantity;
+      if (!total && unitPrice) total = quantity * unitPrice;
+
+      return {
+        description,
+        quantity,
+        unitPrice,
+        total,
+        taxType: stringValue(item.tax_type) || stringValue(item.taxType) || null,
+      };
+    })
+    .filter((item): item is PurchaseItem => Boolean(item));
+}
+
+function taxSummary(transaction?: MerchantTransaction | null, receipt?: TransactionReceipt | null, items: PurchaseItem[] = []) {
+  const taxSource = transaction?.tax_type || items.find((item) => item.taxType)?.taxType || receipt?.document_type || transaction?.document_type || receipt?.receipt_type;
+  const vatAmount = firstNumberValue(transaction?.vat_amount, receipt?.vat_amount);
+  const baseAmount = firstPositiveNumberValue(
+    transaction?.vatable_sales,
+    receipt?.vatable_sales,
+    receipt?.vat_exempt_sales,
+    receipt?.zero_rated_sales,
+    transaction?.net_amount,
+    receipt?.gross_amount,
+    receipt?.total_due,
+    transaction?.amount,
+  );
+
+  return {
+    label: taxTypeLabel(taxSource),
+    subtext: `VAT ${formatPHP(vatAmount)} • Base ${formatPHP(baseAmount)}`,
+    vatAmount,
+  };
+}
+
+function documentLabel(transaction?: MerchantTransaction | null, receipt?: TransactionReceipt | null) {
+  const templateCode = receipt?.bir_template_code || transaction?.bir_template_code;
+  const type = receipt?.document_type || transaction?.document_type || receipt?.receipt_type;
+  const label = taxTypeLabel(type);
+
+  return [templateCode, label].filter(Boolean).join(" ");
+}
+
+function isWithinDateRange(value: string, from: string, to: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  if (from) {
+    const fromDate = new Date(`${from}T00:00:00`);
+    if (date < fromDate) return false;
+  }
+
+  if (to) {
+    const toDate = new Date(`${to}T23:59:59.999`);
+    if (date > toDate) return false;
+  }
+
+  return true;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeFilePart(value: string) {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "receipt";
+}
+
+function buildReceiptHtml(row: TransactionRow, clientName: string) {
+  const itemRows = row.items.length
+    ? row.items.map((item) => `
+        <tr>
+          <td>${escapeHtml(item.description)}</td>
+          <td class="right">${escapeHtml(item.quantity.toLocaleString("en-PH"))}</td>
+          <td class="right">${escapeHtml(formatPHP(item.unitPrice))}</td>
+          <td class="right">${escapeHtml(formatPHP(item.total))}</td>
+        </tr>
+      `).join("")
+    : `
+        <tr>
+          <td colspan="4" class="muted center">No item details saved for this receipt.</td>
+        </tr>
+      `;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(row.receiptNumber || row.reference)} - NUERS Receipt</title>
+  <style>
+    body { margin: 0; background: #f4f7fb; color: #0f172a; font-family: Arial, sans-serif; }
+    .receipt { width: 760px; margin: 32px auto; background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; overflow: hidden; box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12); }
+    .header { background: #0f2a44; color: #fff; padding: 28px 32px; }
+    .header h1 { margin: 0; font-size: 24px; letter-spacing: 0.02em; }
+    .header p { margin: 8px 0 0; color: #dbeafe; font-size: 13px; }
+    .section { padding: 24px 32px; border-bottom: 1px solid #e5eaf2; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
+    .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .value { margin-top: 4px; font-size: 14px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th { color: #64748b; font-size: 11px; text-align: left; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 0; border-bottom: 1px solid #dbe3ee; }
+    td { font-size: 13px; padding: 12px 0; border-bottom: 1px solid #eef2f7; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .muted { color: #64748b; }
+    .totals { display: grid; justify-content: end; gap: 8px; padding-top: 16px; }
+    .total-row { display: grid; grid-template-columns: 170px 150px; gap: 16px; font-size: 13px; }
+    .grand { font-size: 18px; font-weight: 800; }
+    .footer { padding: 18px 32px; color: #64748b; font-size: 11px; }
+    @media print { body { background: #fff; } .receipt { box-shadow: none; margin: 0; width: 100%; border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <main class="receipt">
+    <section class="header">
+      <h1>NUERS Electronic Receipt</h1>
+      <p>National Unified Electronic Receipt System</p>
+    </section>
+    <section class="section grid">
+      <div>
+        <div class="label">Receipt number</div>
+        <div class="value">${escapeHtml(row.receiptNumber || row.reference)}</div>
+      </div>
+      <div>
+        <div class="label">Date issued</div>
+        <div class="value">${escapeHtml(formatDate(row.date))}</div>
+      </div>
+      <div>
+        <div class="label">Business account</div>
+        <div class="value">${escapeHtml(row.merchant)}</div>
+      </div>
+      <div>
+        <div class="label">Business TIN</div>
+        <div class="value">${escapeHtml(row.merchantTin || "TIN pending")}</div>
+      </div>
+      <div>
+        <div class="label">Customer</div>
+        <div class="value">${escapeHtml(row.buyerName || clientName || "Client account")}</div>
+      </div>
+      <div>
+        <div class="label">Document</div>
+        <div class="value">${escapeHtml(row.documentLabel || row.taxLabel)}</div>
+      </div>
+    </section>
+    <section class="section">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="right">Qty</th>
+            <th class="right">Unit</th>
+            <th class="right">Total</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <div class="totals">
+        <div class="total-row"><span class="muted">Tax type</span><strong>${escapeHtml(row.taxLabel)}</strong></div>
+        <div class="total-row"><span class="muted">VAT</span><strong>${escapeHtml(formatPHP(row.vat ?? 0))}</strong></div>
+        <div class="total-row grand"><span>Total due</span><span>${escapeHtml(formatPHP(row.amount))}</span></div>
+      </div>
+    </section>
+    <section class="footer">
+      Reference: ${escapeHtml(row.reference)} | RDO: ${escapeHtml(row.rdoBranch || "Unassigned RDO")} | Status: ${escapeHtml(row.status)}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function downloadReceiptFile(row: TransactionRow, clientName: string) {
+  const filename = `${safeFilePart(row.receiptNumber || row.reference)}-nuers-receipt.html`;
+  const blob = new Blob([buildReceiptHtml(row, clientName)], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
 function BusinessLogo({ name, src }: { name: string; src?: string | null }) {
   const initials = (name || "BA")
     .split(/\s+/)
@@ -310,15 +700,75 @@ function BusinessLogo({ name, src }: { name: string; src?: string | null }) {
     .map((part) => part[0])
     .join("")
     .toUpperCase() || "BA";
+  const assetSrc = publicAssetUrl(src);
+  const uploadPath = src && !/^(https?:|data:|blob:)/i.test(src)
+    ? src.startsWith("/") ? src : `/${src}`
+    : "";
+  const liveLogoFallback = uploadPath.startsWith("/uploads/business-logos/") ? `https://nuers.net${uploadPath}` : "";
+  const [imageSrc, setImageSrc] = useState(assetSrc);
+
+  useEffect(() => {
+    setImageSrc(assetSrc);
+  }, [assetSrc]);
 
   return (
-    <Avatar className="h-9 w-9 shrink-0 rounded-lg border bg-secondary">
-      {src && <AvatarImage src={src} alt={`${name} logo`} className="object-cover" />}
+    <Avatar className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border bg-secondary">
+      {imageSrc && (
+        <img
+          src={imageSrc}
+          alt={`${name} logo`}
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => {
+            setImageSrc((current) => current !== liveLogoFallback && liveLogoFallback ? liveLogoFallback : "");
+          }}
+        />
+      )}
       <AvatarFallback className="rounded-lg bg-secondary text-[10px] font-bold">
         {initials}
       </AvatarFallback>
     </Avatar>
   );
+}
+
+function PurchaseDetails({ items }: { items: PurchaseItem[] }) {
+  if (!items.length) {
+    return (
+      <div className="max-w-72 text-xs text-muted-foreground">
+        No purchase item details saved.
+      </div>
+    );
+  }
+
+  const visibleItems = items.slice(0, 2);
+
+  return (
+    <div className="max-w-80 space-y-2">
+      {visibleItems.map((item, index) => (
+        <div key={`${item.description}-${index}`} className="space-y-0.5">
+          <p className="line-clamp-1 text-xs font-semibold text-foreground">{item.description}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Qty {item.quantity.toLocaleString("en-PH")} • Unit {formatPHP(item.unitPrice)} • Total {formatPHP(item.total)}
+          </p>
+        </div>
+      ))}
+      {items.length > visibleItems.length && (
+        <Badge variant="outline" className="text-[10px]">
+          +{items.length - visibleItems.length} more item{items.length - visibleItems.length === 1 ? "" : "s"}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+function initialsForName(value?: string | null) {
+  const source = (value || "Citizen Account").trim();
+  return source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "CA";
 }
 
 function ClientPortalPage({ view }: { view: ClientPageView }) {
@@ -335,17 +785,36 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
   const [tinInput, setTinInput] = useState("");
   const [tinError, setTinError] = useState("");
   const [savingTin, setSavingTin] = useState(false);
-  const [tinDialogOpen, setTinDialogOpen] = useState(true);
+  const [tinDialogOpen, setTinDialogOpen] = useState(false);
+  const [clientIdentityLoaded, setClientIdentityLoaded] = useState(false);
+  const [profileForm, setProfileForm] = useState<ClientProfileForm>({
+    full_name: "",
+    organization: "Citizen Account",
+    email: "",
+    mobile: "",
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedReceiptRow, setSelectedReceiptRow] = useState<TransactionRow | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
-  const boundTin = clientProfile?.tin || authProfile?.tin || clientAccount?.tin || "";
+  const boundTin = resolveBoundTin(clientProfile?.tin, authProfile?.tin, clientAccount?.tin);
   const hasBoundTin = isValidTin(boundTin);
   const payload = hasBoundTin ? barcodePayload(boundTin) : "";
+  const avatarSrc = avatarPreview || publicAssetUrl(clientProfile?.profile_photo_url || authProfile?.profile_photo_url);
+  const clientDisplayName = clientProfile?.full_name || authProfile?.full_name || clientAccount?.full_name || user?.email || "Client account";
 
   useEffect(() => {
     async function loadClientProfile() {
       if (!user?.id) return;
+      setClientIdentityLoaded(false);
       setLoading(true);
       setError("");
 
@@ -365,6 +834,7 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       if (profileError) {
         setError(profileError.message);
         setLoading(false);
+        setClientIdentityLoaded(true);
         return;
       }
 
@@ -374,13 +844,38 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
 
       setClientProfile(data);
       setClientAccount(accountData ?? null);
-      setTinInput(data?.tin ?? accountData?.tin ?? "");
-      setTinDialogOpen(!isValidTin(data?.tin ?? accountData?.tin ?? ""));
+      const nextTin = resolveBoundTin(data?.tin, authProfile?.tin, accountData?.tin);
+      setTinInput(nextTin);
+      setProfileForm({
+        full_name: data?.full_name || accountData?.full_name || authProfile?.full_name || user.email || "",
+        organization: data?.organization || authProfile?.organization || "Citizen Account",
+        email: accountData?.email || data?.email || user.email || "",
+        mobile: accountData?.mobile || "",
+      });
+      setTinDialogOpen(!isValidTin(nextTin));
       setLoading(false);
+      setClientIdentityLoaded(true);
     }
 
     loadClientProfile();
-  }, [user?.id]);
+  }, [authProfile?.tin, user?.id]);
+
+  useEffect(() => {
+    if (hasBoundTin) {
+      setTinDialogOpen(false);
+      setTinError("");
+    }
+  }, [boundTin, hasBoundTin]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFrom, dateTo, pageSize, search, statusFilter]);
 
   useEffect(() => {
     if (!hasBoundTin) {
@@ -401,13 +896,13 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       supabase
         .from<MerchantTransaction[]>("merchant_transactions")
         .select("*")
-        .eq("customer_tin", tin)
+        .or(tinMatchFilter(["customer_tin", "customer_name"], tin))
         .order("created_at", { ascending: false })
         .limit(100),
       supabase
         .from<TransactionReceipt[]>("transaction_receipts")
         .select("*")
-        .eq("buyer_tin", tin)
+        .or(tinMatchFilter(["buyer_tin", "buyer_name"], tin))
         .order("issued_at", { ascending: false })
         .limit(100),
     ]);
@@ -429,16 +924,34 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
         ...nextReceipts.map((receipt) => receipt.merchant_id).filter(Boolean),
       ]),
     ) as string[];
+    const merchantTinValues = Array.from(
+      new Set(nextReceipts.flatMap((receipt) => tinMatchValues(receipt.merchant_tin ?? ""))),
+    );
+    const merchantNames = Array.from(
+      new Set(nextReceipts.map((receipt) => receipt.merchant_name).filter(Boolean)),
+    ) as string[];
 
-    if (merchantIds.length) {
-      const { data: merchants } = await supabase
-        .from<Merchant[]>("merchants")
-        .select("*")
-        .in("id", merchantIds);
+    if (merchantIds.length || merchantTinValues.length || merchantNames.length) {
+      const merchantResults = await Promise.all([
+        merchantIds.length
+          ? supabase.from<Merchant[]>("merchants").select("*").in("id", merchantIds)
+          : Promise.resolve({ data: [] as Merchant[], error: null }),
+        merchantTinValues.length
+          ? supabase.from<Merchant[]>("merchants").select("*").in("tin", merchantTinValues)
+          : Promise.resolve({ data: [] as Merchant[], error: null }),
+        merchantNames.length
+          ? supabase.from<Merchant[]>("merchants").select("*").in("business_name", merchantNames)
+          : Promise.resolve({ data: [] as Merchant[], error: null }),
+      ]);
+      const merchants = merchantResults
+        .flatMap((result) => result.data ?? [])
+        .filter((merchant, index, list) => list.findIndex((item) => item.id === merchant.id) === index);
 
       setMerchantMap(
-        (merchants ?? []).reduce<Record<string, Merchant>>((map, merchant) => {
-          map[merchant.id] = merchant;
+        merchants.reduce<Record<string, Merchant>>((map, merchant) => {
+          merchantDirectoryKeys(merchant).forEach((key) => {
+            map[key] = merchant;
+          });
           return map;
         }, {}),
       );
@@ -500,6 +1013,122 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
     setTinDialogOpen(false);
   }
 
+  function emitClientProfileUpdate(profile?: ClientProfile | null, account?: ClientAccount | null) {
+    window.dispatchEvent(new CustomEvent("nuers:client-profile-updated", {
+      detail: {
+        full_name: profile?.full_name || account?.full_name || profileForm.full_name,
+        organization: profile?.organization || profileForm.organization,
+        email: account?.email || profile?.email || profileForm.email,
+        profile_photo_url: profile?.profile_photo_url || clientProfile?.profile_photo_url || authProfile?.profile_photo_url || null,
+      },
+    }));
+  }
+
+  function applyClientProfilePayload(payload?: ClientProfilePayload | null) {
+    const nextProfile = payload?.profile;
+    const nextAccount = payload?.account;
+
+    if (nextProfile) {
+      setClientProfile((current) => ({ ...(current ?? nextProfile), ...nextProfile }));
+    }
+
+    if (nextAccount !== undefined) {
+      setClientAccount(nextAccount);
+    }
+
+    const resolvedProfile = nextProfile ?? clientProfile;
+    const resolvedAccount = nextAccount ?? clientAccount;
+
+    setProfileForm({
+      full_name: resolvedProfile?.full_name || resolvedAccount?.full_name || profileForm.full_name,
+      organization: resolvedProfile?.organization || profileForm.organization || "Citizen Account",
+      email: resolvedAccount?.email || resolvedProfile?.email || profileForm.email || user?.email || "",
+      mobile: resolvedAccount?.mobile || profileForm.mobile || "",
+    });
+
+    emitClientProfileUpdate(resolvedProfile, resolvedAccount);
+  }
+
+  function handleProfileFieldChange(field: keyof ClientProfileForm, value: string) {
+    setProfileForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleAvatarChange(file: File | null) {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose a valid image file.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Profile picture must be 2 MB or smaller.");
+      return;
+    }
+
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  }
+
+  async function uploadCitizenAvatar(): Promise<ClientProfilePayload | null> {
+    if (!avatarFile) return null;
+
+    const formData = new FormData();
+    formData.append("avatar", avatarFile);
+
+    const response = await apiFetch("/api/client/profile/avatar", {
+      method: "POST",
+      body: formData,
+    });
+
+    const payload = await readJsonResponse<{ data?: ClientProfilePayload }>(response, "Unable to upload the citizen profile picture.");
+
+    return payload.data ?? null;
+  }
+
+  async function handleProfileSubmit(event: FormEvent) {
+    event.preventDefault();
+
+    const fullName = profileForm.full_name.trim();
+
+    if (!fullName) {
+      toast.error("Full name is required.");
+      return;
+    }
+
+    setProfileSaving(true);
+
+    try {
+      const response = await apiFetch("/api/client/profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          full_name: fullName,
+          organization: profileForm.organization.trim() || "Citizen Account",
+          email: profileForm.email.trim() || user?.email || "",
+          mobile: profileForm.mobile.trim(),
+        }),
+      });
+
+      const payload = await readJsonResponse<{ data?: ClientProfilePayload }>(response, "Unable to save the citizen profile.");
+      const avatarPayload = await uploadCitizenAvatar();
+      const mergedPayload: ClientProfilePayload = {
+        profile: avatarPayload?.profile ?? payload.data?.profile ?? null,
+        account: avatarPayload?.account ?? payload.data?.account ?? null,
+      };
+
+      applyClientProfilePayload(mergedPayload);
+      setAvatarFile(null);
+      setAvatarPreview("");
+      toast.success(avatarPayload ? "Citizen profile and picture saved." : "Citizen profile saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to save the citizen profile.");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   const rows = useMemo<TransactionRow[]>(() => {
     const receiptsByTransaction = receipts.reduce<Record<string, TransactionReceipt>>((map, receipt) => {
       if (receipt.transaction_id) map[receipt.transaction_id] = receipt;
@@ -508,7 +1137,9 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
 
     const transactionRows = transactions.map((transaction) => {
       const receipt = transaction.receipt_id ? receipts.find((item) => item.id === transaction.receipt_id) : receiptsByTransaction[transaction.id];
-      const merchant = transaction.merchant_id ? merchantMap[transaction.merchant_id] : null;
+      const merchant = merchantFromDirectory(merchantMap, transaction.merchant_id, receipt?.merchant_tin, receipt?.merchant_name);
+      const items = purchaseItemsFromSources(transaction, receipt);
+      const tax = taxSummary(transaction, receipt, items);
 
       return {
         id: transaction.id,
@@ -522,9 +1153,15 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
         paymentMethod: transaction.payment_method.replace(/_/g, " "),
         channel: transaction.channel.replace(/_/g, " "),
         amount: Number(transaction.amount),
-        vat: Number(transaction.vat_amount),
+        vat: tax.vatAmount,
+        taxLabel: tax.label,
+        taxSubtext: tax.subtext,
+        items,
         status: transaction.status,
         receiptNumber: receipt?.receipt_number,
+        receiptId: receipt?.id ?? transaction.receipt_id,
+        buyerName: receipt?.buyer_name || transaction.customer_name,
+        documentLabel: documentLabel(transaction, receipt),
         date: transaction.created_at,
       };
     });
@@ -533,7 +1170,9 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
     const receiptOnlyRows = receipts
       .filter((receipt) => !receipt.transaction_id || !transactionIds.has(receipt.transaction_id))
       .map((receipt) => {
-        const merchant = receipt.merchant_id ? merchantMap[receipt.merchant_id] : null;
+        const merchant = merchantFromDirectory(merchantMap, receipt.merchant_id, receipt.merchant_tin, receipt.merchant_name);
+        const items = purchaseItemsFromSources(null, receipt);
+        const tax = taxSummary(null, receipt, items);
 
         return {
           id: receipt.id,
@@ -547,9 +1186,15 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
           paymentMethod: "recorded by business account",
           channel: "receipt archive",
           amount: Number(receipt.total_due),
-          vat: undefined,
+          vat: tax.vatAmount,
+          taxLabel: tax.label,
+          taxSubtext: tax.subtext,
+          items,
           status: receipt.status,
           receiptNumber: receipt.receipt_number,
+          receiptId: receipt.id,
+          buyerName: receipt.buyer_name,
+          documentLabel: documentLabel(null, receipt),
           date: receipt.issued_at || receipt.created_at,
         };
       });
@@ -558,23 +1203,35 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
   }, [merchantMap, receipts, transactions]);
 
   const filteredRows = rows.filter((row) => {
-    const text = `${row.reference} ${row.merchant} ${row.receiptNumber ?? ""} ${row.type} ${row.status} ${row.paymentMethod} ${row.rdoBranch ?? ""}`.toLowerCase();
+    const itemText = row.items.map((item) => `${item.description} ${item.taxType ?? ""}`).join(" ");
+    const text = `${row.reference} ${row.merchant} ${row.merchantTin ?? ""} ${row.receiptNumber ?? ""} ${row.type} ${row.status} ${row.paymentMethod} ${row.rdoBranch ?? ""} ${row.taxLabel} ${row.taxSubtext} ${row.amount} ${formatPHP(row.amount)} ${itemText}`.toLowerCase();
     const matchesText = text.includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || row.status.toLowerCase() === statusFilter;
-    return matchesText && matchesStatus;
+    const matchesDate = isWithinDateRange(row.date, dateFrom, dateTo);
+    return matchesText && matchesStatus && matchesDate;
   });
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, pageCount);
+  const pageStart = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filteredRows.slice(pageStart, pageStart + pageSize);
+  const showingFrom = filteredRows.length ? pageStart + 1 : 0;
+  const showingTo = Math.min(filteredRows.length, pageStart + pageSize);
 
   const receiptRows = receipts
-    .map((receipt) => ({
-      id: receipt.id,
-      receiptNumber: receipt.receipt_number,
-      merchant: receipt.merchant_name,
-      merchantLogo: receipt.merchant_id ? merchantMap[receipt.merchant_id]?.logo_url ?? null : null,
-      merchantTin: receipt.merchant_tin,
-      amount: Number(receipt.total_due),
-      status: receipt.status,
-      date: receipt.issued_at || receipt.created_at,
-    }))
+    .map((receipt) => {
+      const merchant = merchantFromDirectory(merchantMap, receipt.merchant_id, receipt.merchant_tin, receipt.merchant_name);
+
+      return {
+        id: receipt.id,
+        receiptNumber: receipt.receipt_number,
+        merchant: receipt.merchant_name,
+        merchantLogo: merchant?.logo_url ?? null,
+        merchantTin: receipt.merchant_tin,
+        amount: Number(receipt.total_due),
+        status: receipt.status,
+        date: receipt.issued_at || receipt.created_at,
+      };
+    })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const walletBalance = Number(clientAccount?.wallet_balance ?? 0);
@@ -637,19 +1294,35 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       .slice(0, 5);
   }, [rows]);
 
+  function handleDownloadReceipt(row: TransactionRow) {
+    if (!row.receiptNumber) {
+      toast.info("This transaction does not have an electronic receipt yet.");
+      return;
+    }
+
+    downloadReceiptFile(row, clientDisplayName);
+    toast.success(`${row.receiptNumber} downloaded.`);
+  }
+
   const pageMeta = clientPageMeta[view];
 
   return (
     <div className="space-y-6">
       <TinBindingDialog
-        open={tinDialogOpen || !hasBoundTin}
+        open={tinDialogOpen || (clientIdentityLoaded && !hasBoundTin)}
         tinInput={tinInput}
         tinError={tinError}
         saving={savingTin}
         canClose={hasBoundTin}
-        onOpenChange={(open) => setTinDialogOpen(hasBoundTin ? open : true)}
+        onOpenChange={(open) => setTinDialogOpen(hasBoundTin || !clientIdentityLoaded ? open : true)}
         onTinChange={(value) => setTinInput(formatTin(value))}
         onSubmit={handleTinSubmit}
+      />
+      <ReceiptPreviewDialog
+        row={selectedReceiptRow}
+        clientName={clientDisplayName}
+        onOpenChange={(open) => !open && setSelectedReceiptRow(null)}
+        onDownload={handleDownloadReceipt}
       />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -837,8 +1510,8 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
                 <CardTitle className="text-sm">My Transaction Ledger</CardTitle>
                 <p className="text-xs text-muted-foreground">Database transactions and receipts matched to your bound TIN.</p>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-                <div className="relative w-full sm:w-80">
+              <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto xl:grid-cols-[320px_150px_150px_150px_auto]">
+                <div className="relative min-w-0">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     className="pl-9"
@@ -847,10 +1520,31 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
                     onChange={(event) => setSearch(event.target.value)}
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="client-transaction-date-from" className="sr-only">Date from</Label>
+                  <Input
+                    id="client-transaction-date-from"
+                    type="date"
+                    value={dateFrom}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                    aria-label="Date from"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="client-transaction-date-to" className="sr-only">Date to</Label>
+                  <Input
+                    id="client-transaction-date-to"
+                    type="date"
+                    value={dateTo}
+                    onChange={(event) => setDateTo(event.target.value)}
+                    aria-label="Date to"
+                  />
+                </div>
                 <select
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs"
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
+                  aria-label="Transaction status"
                 >
                   <option value="all">All status</option>
                   <option value="completed">Completed</option>
@@ -858,74 +1552,164 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
                   <option value="verified">Verified</option>
                   <option value="pending">Pending</option>
                 </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs"
+                  onClick={() => {
+                    setSearch("");
+                    setDateFrom("");
+                    setDateTo("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear
+                </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {hasBoundTin && filteredRows.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Business Account / Agency</TableHead>
-                    <TableHead>Reference</TableHead>
-                    <TableHead>RDO Branch</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Channel</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Receipt</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <BusinessLogo name={row.merchant} src={row.merchantLogo} />
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-foreground">{row.merchant}</p>
-                            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                              {row.merchantTin ?? "Business account TIN pending"}{row.branch ? ` • ${row.branch}` : ""}
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{row.reference}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex max-w-56 items-center gap-1.5 truncate text-xs text-muted-foreground">
-                          <Building2 className="h-3.5 w-3.5 shrink-0" />
-                          {row.rdoBranch ?? "Unassigned RDO"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="capitalize text-xs text-muted-foreground">{row.type}</TableCell>
-                      <TableCell className="capitalize text-xs text-muted-foreground">{row.channel}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <CalendarClock className="h-3.5 w-3.5" />
-                          {formatDate(row.date)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{formatPHP(row.amount)}</TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(row.status)} className="capitalize text-[10px]">
-                          {row.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {row.receiptNumber ? (
-                          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                            <Download className="h-3.5 w-3.5" />
-                            {row.receiptNumber}
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Awaiting eOR</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="space-y-4">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Business Account / Agency</TableHead>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Purchase Details</TableHead>
+                        <TableHead>Tax</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Receipt</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <BusinessLogo name={row.merchant} src={row.merchantLogo} />
+                              <div className="min-w-0">
+                                <p className="truncate font-medium text-foreground">{row.merchant}</p>
+                                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                                  {row.merchantTin ?? "Business account TIN pending"}{row.branch ? ` • ${row.branch}` : ""}
+                                </p>
+                                <p className="mt-0.5 inline-flex max-w-64 items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+                                  <Building2 className="h-3 w-3 shrink-0" />
+                                  {row.rdoBranch ?? "Unassigned RDO"}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <p className="font-mono text-xs font-semibold text-foreground">{row.reference}</p>
+                              <p className="text-[11px] capitalize text-muted-foreground">
+                                {row.type} • {row.channel}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <PurchaseDetails items={row.items} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="min-w-36 space-y-1">
+                              <Badge variant="outline" className="text-[10px]">
+                                {row.taxLabel}
+                              </Badge>
+                              <p className="text-[11px] text-muted-foreground">{row.taxSubtext}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              {formatDate(row.date)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">{formatPHP(row.amount)}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(row.status)} className="capitalize text-[10px]">
+                              {row.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.receiptNumber ? (
+                              <div className="flex justify-end gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1.5 text-xs"
+                                  onClick={() => setSelectedReceiptRow(row)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                  View
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1.5 text-xs"
+                                  onClick={() => handleDownloadReceipt(row)}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  Download
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Awaiting eOR</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex flex-col gap-3 border-t pt-4 text-xs text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    Showing <span className="font-semibold text-foreground">{showingFrom}</span> to <span className="font-semibold text-foreground">{showingTo}</span> of <span className="font-semibold text-foreground">{filteredRows.length}</span> transactions
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="client-transaction-page-size" className="text-xs text-muted-foreground">Rows per page</Label>
+                    <select
+                      id="client-transaction-page-size"
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground shadow-xs"
+                      value={pageSize}
+                      onChange={(event) => setPageSize(Number(event.target.value))}
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                    </select>
+                    <span className="px-2 text-xs text-muted-foreground">
+                      Page {safeCurrentPage} of {pageCount}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1 text-xs"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={safeCurrentPage <= 1}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      Prev
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1 text-xs"
+                      onClick={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
+                      disabled={safeCurrentPage >= pageCount}
+                    >
+                      Next
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ) : (
               <EmptyLedger hasBoundTin={hasBoundTin} onOpenTin={() => setTinDialogOpen(true)} />
             )}
@@ -1108,6 +1892,145 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       </section>
       )}
 
+      {view === "profile" && (
+      <section id="client-profile" className="scroll-mt-24 space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Card>
+            <CardHeader className="border-b bg-slate-50/80 pb-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <User className="h-4 w-4 text-primary" />
+                    Citizen Identity
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">Update the identity shown across your client portal and receipt records.</p>
+                </div>
+                <Badge variant={hasBoundTin ? "secondary" : "destructive"} className="w-fit text-[10px]">
+                  {hasBoundTin ? "TIN bound" : "TIN required"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-5">
+              <form onSubmit={handleProfileSubmit} className="space-y-5">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                  <Avatar className="h-20 w-20 rounded-2xl border bg-primary text-primary-foreground">
+                    {avatarSrc && <AvatarImage src={avatarSrc} alt={`${profileForm.full_name || "Citizen"} profile picture`} className="object-cover" />}
+                    <AvatarFallback className="rounded-2xl bg-primary text-xl font-bold text-primary-foreground">
+                      {initialsForName(profileForm.full_name || clientProfile?.full_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">{profileForm.full_name || "Citizen Account"}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">{profileForm.email || user?.email || "No email on file"}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={(event) => handleAvatarChange(event.currentTarget.files?.[0] ?? null)}
+                      />
+                      <Button type="button" variant="outline" size="sm" className="gap-2 text-xs" onClick={() => avatarInputRef.current?.click()}>
+                        <Camera className="h-3.5 w-3.5" />
+                        {avatarSrc ? "Change picture" : "Upload picture"}
+                      </Button>
+                      {avatarFile && <Badge variant="secondary" className="text-[10px]">Ready to save</Badge>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="client-profile-full-name">Full name</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="client-profile-full-name"
+                        value={profileForm.full_name}
+                        onChange={(event) => handleProfileFieldChange("full_name", event.target.value)}
+                        className="pl-9"
+                        disabled={profileSaving}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-profile-label">Account label</Label>
+                    <Input
+                      id="client-profile-label"
+                      value={profileForm.organization}
+                      onChange={(event) => handleProfileFieldChange("organization", event.target.value)}
+                      disabled={profileSaving}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-profile-email">Contact email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="client-profile-email"
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(event) => handleProfileFieldChange("email", event.target.value)}
+                        className="pl-9"
+                        disabled={profileSaving}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-profile-mobile">Mobile number</Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="client-profile-mobile"
+                        value={profileForm.mobile}
+                        onChange={(event) => handleProfileFieldChange("mobile", event.target.value)}
+                        className="pl-9"
+                        disabled={profileSaving}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Bound TIN: <span className="font-mono font-semibold text-foreground">{hasBoundTin ? boundTin : "Not bound"}</span>
+                  </p>
+                  <Button type="submit" className="gap-2" disabled={profileSaving}>
+                    {profileSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {profileSaving ? "Saving..." : "Save profile"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Fingerprint className="h-4 w-4 text-primary" />
+                Account Record
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <IdentityField label="Account number" value={clientAccount?.account_number ?? "Pending provisioning"} mono />
+              <IdentityField label="Account type" value={clientAccount?.account_type ?? "citizen"} />
+              <IdentityField label="Status" value={clientAccount?.status ?? "profile active"} />
+              <IdentityField label="Last updated" value={formatDate(clientAccount?.updated_at ?? clientProfile?.updated_at ?? clientProfile?.tin_bound_at)} />
+              <div className="rounded-lg border bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-foreground">Profile readiness</span>
+                  <Badge variant={avatarSrc && profileForm.mobile ? "secondary" : "outline"} className="text-[10px]">
+                    {avatarSrc && profileForm.mobile ? "Complete" : "In progress"}
+                  </Badge>
+                </div>
+                <Progress className="mt-3 h-1.5" value={(hasBoundTin ? 35 : 0) + (avatarSrc ? 30 : 0) + (profileForm.mobile ? 20 : 0) + (profileForm.email ? 15 : 0)} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+      )}
+
       {view === "security" && (
       <section id="client-security" className="scroll-mt-24 space-y-4">
         <div className="grid gap-4 lg:grid-cols-3">
@@ -1152,6 +2075,10 @@ export function ClientNotificationsPage() {
 
 export function ClientSecurityPage() {
   return <ClientPortalPage view="security" />;
+}
+
+export function ClientProfilePage() {
+  return <ClientPortalPage view="profile" />;
 }
 
 function TinBindingDialog({
@@ -1210,13 +2137,13 @@ function TinBindingDialog({
             No barcode will be generated until this TIN is bound. Business account scans will post future transactions to this client account.
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
             {canClose && (
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
             )}
-            <Button type="submit" className="w-full gap-2" disabled={saving}>
+            <Button type="submit" className="w-full min-w-0 gap-2" disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Save TIN and generate barcode
             </Button>
@@ -1224,6 +2151,114 @@ function TinBindingDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ReceiptPreviewDialog({
+  row,
+  clientName,
+  onOpenChange,
+  onDownload,
+}: {
+  row: TransactionRow | null;
+  clientName: string;
+  onOpenChange: (open: boolean) => void;
+  onDownload: (row: TransactionRow) => void;
+}) {
+  return (
+    <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        {row && (
+          <div className="space-y-5">
+            <DialogHeader>
+              <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
+                <Receipt className="h-5 w-5 text-primary" />
+              </div>
+              <DialogTitle>Electronic receipt</DialogTitle>
+              <DialogDescription>
+                {row.receiptNumber || row.reference} from {row.merchant}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="overflow-hidden rounded-lg border">
+              <div className="bg-primary p-4 text-primary-foreground">
+                <p className="text-xs uppercase tracking-wide opacity-80">NUERS Electronic Receipt</p>
+                <p className="mt-1 font-mono text-lg font-bold">{row.receiptNumber || row.reference}</p>
+              </div>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <ReceiptPreviewField label="Business account" value={row.merchant} />
+                <ReceiptPreviewField label="Business TIN" value={row.merchantTin || "TIN pending"} mono />
+                <ReceiptPreviewField label="Customer" value={row.buyerName || clientName} />
+                <ReceiptPreviewField label="Date" value={formatDate(row.date)} />
+                <ReceiptPreviewField label="Document" value={row.documentLabel || row.taxLabel} />
+                <ReceiptPreviewField label="Status" value={row.status} />
+              </div>
+            </div>
+
+            <div className="rounded-lg border">
+              <div className="border-b bg-slate-50 px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">Purchased items</p>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Unit</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {row.items.length ? row.items.map((item, index) => (
+                      <TableRow key={`${item.description}-${index}`}>
+                        <TableCell className="font-medium">{item.description}</TableCell>
+                        <TableCell className="text-right">{item.quantity.toLocaleString("en-PH")}</TableCell>
+                        <TableCell className="text-right">{formatPHP(item.unitPrice)}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatPHP(item.total)}</TableCell>
+                      </TableRow>
+                    )) : (
+                      <TableRow>
+                        <TableCell colSpan={4} className="py-8 text-center text-xs text-muted-foreground">
+                          No item details saved for this receipt.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <div className="grid gap-3 rounded-lg border bg-slate-50 p-4 sm:grid-cols-3">
+              <ReceiptPreviewField label="Tax type" value={row.taxLabel} />
+              <ReceiptPreviewField label="VAT" value={formatPHP(row.vat ?? 0)} />
+              <ReceiptPreviewField label="Total due" value={formatPHP(row.amount)} strong />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+              <Button type="button" className="gap-2" onClick={() => onDownload(row)}>
+                <Download className="h-4 w-4" />
+                Download receipt
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReceiptPreviewField({ label, value, mono = false, strong = false }: { label: string; value: string; mono?: boolean; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-sm ${mono ? "font-mono" : ""} ${strong ? "text-lg font-bold text-foreground" : "font-semibold text-foreground"}`}>
+        {value}
+      </p>
+    </div>
   );
 }
 

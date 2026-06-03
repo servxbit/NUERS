@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BusinessAccountController;
 use App\Http\Controllers\Api\BusinessInvoiceController;
+use App\Http\Controllers\Api\ClientProfileController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EisController;
 use App\Http\Controllers\Api\IntegrationTransactionController;
@@ -27,6 +28,8 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/signup', [AuthController::class, 'signup']);
 Route::post('/auth/logout', [AuthController::class, 'logout']);
 Route::post('/merchant-accounts', [AuthController::class, 'createMerchantAccount']);
+Route::put('/client/profile', [ClientProfileController::class, 'update']);
+Route::post('/client/profile/avatar', [ClientProfileController::class, 'uploadAvatar']);
 Route::get('/business-accounts/current', [BusinessAccountController::class, 'current']);
 Route::put('/business-accounts/current', [BusinessAccountController::class, 'update']);
 Route::post('/business-accounts/current/logo', [BusinessAccountController::class, 'uploadLogo']);

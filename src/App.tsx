@@ -37,6 +37,7 @@ import {
   ClientBarcodePage,
   ClientDashboard,
   ClientNotificationsPage,
+  ClientProfilePage,
   ClientReceiptsPage,
   ClientSecurityPage,
   ClientTransactionsPage,
@@ -239,6 +240,7 @@ export default function App() {
         <Route path="wallet" element={<ClientWalletPage />} />
         <Route path="notifications" element={<ClientNotificationsPage />} />
         <Route path="security" element={<ClientSecurityPage />} />
+        <Route path="profile" element={<ClientProfilePage />} />
       </Route>
 
       {/* API Platform */}

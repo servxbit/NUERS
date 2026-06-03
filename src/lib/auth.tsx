@@ -5,7 +5,14 @@ import type { LaravelSession as Session, LaravelUser as User } from "./supabase"
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  profile: { role: string; full_name: string; organization: string; tin?: string | null; tin_bound_at?: string | null } | null;
+  profile: {
+    role: string;
+    full_name: string;
+    organization: string;
+    tin?: string | null;
+    tin_bound_at?: string | null;
+    profile_photo_url?: string | null;
+  } | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null; role: string | null }>;
   signUp: (email: string, password: string, meta?: Record<string, string>) => Promise<{ error: string | null }>;
@@ -57,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await supabase
         .from<Profile>("profiles")
-        .select("role, full_name, organization, tin, tin_bound_at")
+        .select("role, full_name, organization, tin, tin_bound_at, profile_photo_url")
         .eq("id", userId)
         .maybeSingle();
       setProfile(data);
