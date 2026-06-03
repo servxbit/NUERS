@@ -66,6 +66,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useDashboardData, type DashboardListItem } from "@/lib/dashboard-data";
 import { apiFetch, publicAssetUrl, readJsonResponse } from "@/lib/api-url";
+import { downloadB6ReceiptPdf } from "@/lib/receipt-pdf";
 
 type ClientProfile = {
   id: number;
@@ -187,6 +188,7 @@ type TransactionRow = {
   receiptNumber?: string;
   receiptId?: string | null;
   buyerName?: string | null;
+  buyerTin?: string | null;
   documentLabel?: string | null;
   date: string;
 };
@@ -563,133 +565,33 @@ function isWithinDateRange(value: string, from: string, to: string) {
   return true;
 }
 
-function escapeHtml(value: unknown) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function safeFilePart(value: string) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "receipt";
 }
 
-function buildReceiptHtml(row: TransactionRow, clientName: string) {
-  const itemRows = row.items.length
-    ? row.items.map((item) => `
-        <tr>
-          <td>${escapeHtml(item.description)}</td>
-          <td class="right">${escapeHtml(item.quantity.toLocaleString("en-PH"))}</td>
-          <td class="right">${escapeHtml(formatPHP(item.unitPrice))}</td>
-          <td class="right">${escapeHtml(formatPHP(item.total))}</td>
-        </tr>
-      `).join("")
-    : `
-        <tr>
-          <td colspan="4" class="muted center">No item details saved for this receipt.</td>
-        </tr>
-      `;
+function downloadReceiptFile(row: TransactionRow, clientName: string, clientTin?: string | null) {
+  const filenameBase = `${safeFilePart(row.receiptNumber || row.reference)}-b6-payment-receipt`;
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(row.receiptNumber || row.reference)} - NUERS Receipt</title>
-  <style>
-    body { margin: 0; background: #f4f7fb; color: #0f172a; font-family: Arial, sans-serif; }
-    .receipt { width: 760px; margin: 32px auto; background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; overflow: hidden; box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12); }
-    .header { background: #0f2a44; color: #fff; padding: 28px 32px; }
-    .header h1 { margin: 0; font-size: 24px; letter-spacing: 0.02em; }
-    .header p { margin: 8px 0 0; color: #dbeafe; font-size: 13px; }
-    .section { padding: 24px 32px; border-bottom: 1px solid #e5eaf2; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
-    .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
-    .value { margin-top: 4px; font-size: 14px; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; }
-    th { color: #64748b; font-size: 11px; text-align: left; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 0; border-bottom: 1px solid #dbe3ee; }
-    td { font-size: 13px; padding: 12px 0; border-bottom: 1px solid #eef2f7; }
-    .right { text-align: right; }
-    .center { text-align: center; }
-    .muted { color: #64748b; }
-    .totals { display: grid; justify-content: end; gap: 8px; padding-top: 16px; }
-    .total-row { display: grid; grid-template-columns: 170px 150px; gap: 16px; font-size: 13px; }
-    .grand { font-size: 18px; font-weight: 800; }
-    .footer { padding: 18px 32px; color: #64748b; font-size: 11px; }
-    @media print { body { background: #fff; } .receipt { box-shadow: none; margin: 0; width: 100%; border-radius: 0; } }
-  </style>
-</head>
-<body>
-  <main class="receipt">
-    <section class="header">
-      <h1>NUERS Electronic Receipt</h1>
-      <p>National Unified Electronic Receipt System</p>
-    </section>
-    <section class="section grid">
-      <div>
-        <div class="label">Receipt number</div>
-        <div class="value">${escapeHtml(row.receiptNumber || row.reference)}</div>
-      </div>
-      <div>
-        <div class="label">Date issued</div>
-        <div class="value">${escapeHtml(formatDate(row.date))}</div>
-      </div>
-      <div>
-        <div class="label">Business account</div>
-        <div class="value">${escapeHtml(row.merchant)}</div>
-      </div>
-      <div>
-        <div class="label">Business TIN</div>
-        <div class="value">${escapeHtml(row.merchantTin || "TIN pending")}</div>
-      </div>
-      <div>
-        <div class="label">Customer</div>
-        <div class="value">${escapeHtml(row.buyerName || clientName || "Client account")}</div>
-      </div>
-      <div>
-        <div class="label">Document</div>
-        <div class="value">${escapeHtml(row.documentLabel || row.taxLabel)}</div>
-      </div>
-    </section>
-    <section class="section">
-      <table>
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th class="right">Qty</th>
-            <th class="right">Unit</th>
-            <th class="right">Total</th>
-          </tr>
-        </thead>
-        <tbody>${itemRows}</tbody>
-      </table>
-      <div class="totals">
-        <div class="total-row"><span class="muted">Tax type</span><strong>${escapeHtml(row.taxLabel)}</strong></div>
-        <div class="total-row"><span class="muted">VAT</span><strong>${escapeHtml(formatPHP(row.vat ?? 0))}</strong></div>
-        <div class="total-row grand"><span>Total due</span><span>${escapeHtml(formatPHP(row.amount))}</span></div>
-      </div>
-    </section>
-    <section class="footer">
-      Reference: ${escapeHtml(row.reference)} | RDO: ${escapeHtml(row.rdoBranch || "Unassigned RDO")} | Status: ${escapeHtml(row.status)}
-    </section>
-  </main>
-</body>
-</html>`;
-}
-
-function downloadReceiptFile(row: TransactionRow, clientName: string) {
-  const filename = `${safeFilePart(row.receiptNumber || row.reference)}-nuers-receipt.html`;
-  const blob = new Blob([buildReceiptHtml(row, clientName)], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 100);
+  downloadB6ReceiptPdf({
+    receiptNumber: row.receiptNumber || row.reference,
+    reference: row.reference,
+    sellerName: row.merchant,
+    sellerTin: row.merchantTin,
+    sellerAddress: [row.branch, row.rdoBranch].filter(Boolean).join(" • "),
+    buyerName: row.buyerName || clientName || "Client account",
+    buyerTin: row.buyerTin || clientTin,
+    buyerAddress: "Client address on file",
+    paymentMethod: row.paymentMethod,
+    paymentDate: row.date,
+    accountNumber: row.receiptId,
+    documentLabel: row.documentLabel || row.taxLabel,
+    rdoBranch: row.rdoBranch,
+    amount: row.amount,
+    vat: row.vat,
+    taxLabel: row.taxLabel,
+    status: row.status,
+    items: row.items,
+  }, filenameBase);
 }
 
 function BusinessLogo({ name, src }: { name: string; src?: string | null }) {
@@ -1161,6 +1063,7 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
         receiptNumber: receipt?.receipt_number,
         receiptId: receipt?.id ?? transaction.receipt_id,
         buyerName: receipt?.buyer_name || transaction.customer_name,
+        buyerTin: receipt?.buyer_tin || transaction.customer_tin,
         documentLabel: documentLabel(transaction, receipt),
         date: transaction.created_at,
       };
@@ -1194,6 +1097,7 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
           receiptNumber: receipt.receipt_number,
           receiptId: receipt.id,
           buyerName: receipt.buyer_name,
+          buyerTin: receipt.buyer_tin,
           documentLabel: documentLabel(null, receipt),
           date: receipt.issued_at || receipt.created_at,
         };
@@ -1300,8 +1204,8 @@ function ClientPortalPage({ view }: { view: ClientPageView }) {
       return;
     }
 
-    downloadReceiptFile(row, clientDisplayName);
-    toast.success(`${row.receiptNumber} downloaded.`);
+    downloadReceiptFile(row, clientDisplayName, boundTin);
+    toast.success(`${row.receiptNumber} PDF downloaded.`);
   }
 
   const pageMeta = clientPageMeta[view];
@@ -2241,7 +2145,7 @@ function ReceiptPreviewDialog({
               </Button>
               <Button type="button" className="gap-2" onClick={() => onDownload(row)}>
                 <Download className="h-4 w-4" />
-                Download receipt
+                Download PDF receipt
               </Button>
             </DialogFooter>
           </div>
