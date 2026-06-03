@@ -107,9 +107,7 @@ try {
         throw new RuntimeException("Unsupported DB_CONNECTION {$connection}");
     }
 
-    $tables = ['users', 'profiles'];
-
-    foreach ($tables as $table) {
+    foreach (['users', 'profiles'] as $table) {
         $result['tables'][$table] = (int) $pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
     }
 
