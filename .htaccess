@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    # If this repository root is used as the web root, serve the static Vite
+    # artifact from dist/ instead of the development-only root index.html.
+    RewriteCond %{DOCUMENT_ROOT}/dist/$1 -f [OR]
+    RewriteCond %{DOCUMENT_ROOT}/dist/$1 -d
+    RewriteRule ^(.+)$ dist/$1 [L]
+
+    RewriteRule ^$ dist/index.html [L]
+    RewriteRule ^.*$ dist/index.html [L]
+</IfModule>
