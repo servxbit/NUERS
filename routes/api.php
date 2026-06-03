@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BusinessAccountController;
 use App\Http\Controllers\Api\BusinessInvoiceController;
+use App\Http\Controllers\Api\CitizenApprovalController;
 use App\Http\Controllers\Api\ClientProfileController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EisController;
@@ -35,6 +36,8 @@ Route::get('/business-accounts/current', [BusinessAccountController::class, 'cur
 Route::put('/business-accounts/current', [BusinessAccountController::class, 'update']);
 Route::post('/business-accounts/current/logo', [BusinessAccountController::class, 'uploadLogo']);
 Route::get('/business-accounts/lookup', [BusinessAccountController::class, 'lookupByTin']);
+Route::get('/citizen-approvals', [CitizenApprovalController::class, 'index']);
+Route::patch('/citizen-approvals/{id}', [CitizenApprovalController::class, 'update']);
 Route::get('/business-invoices', [BusinessInvoiceController::class, 'index']);
 Route::post('/business-invoices', [BusinessInvoiceController::class, 'store']);
 Route::get('/business-invoices/{invoice}', [BusinessInvoiceController::class, 'show']);

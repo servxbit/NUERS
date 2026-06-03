@@ -1,6 +1,6 @@
 import {
   Activity, AlertTriangle, Building2, Download,
-  FileText, Globe, Landmark, Receipt, Search, ShieldCheck, TrendingUp,
+  FileText, Globe, Landmark, Receipt, Search, ShieldCheck, TrendingUp, UserCheck,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart,
@@ -64,6 +64,11 @@ export function BirDashboard() {
           <Button asChild variant="outline" size="sm" className="gap-2 text-xs">
             <Link to="/bir/rdo-registration">
               <Landmark className="h-3.5 w-3.5" /> Register RDO
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="gap-2 text-xs">
+            <Link to="/bir/citizen-approval">
+              <UserCheck className="h-3.5 w-3.5" /> Citizen Approval
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm" className="gap-2 text-xs">

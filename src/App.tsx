@@ -22,6 +22,7 @@ import { AdminDashboard } from "@/pages/admin/dashboard";
 import { SuperAdminDashboard } from "@/pages/super-admin/dashboard";
 import { BirDashboard } from "@/pages/bir/dashboard";
 import { BirRdoManagement } from "@/pages/bir/rdo-management";
+import { CitizenApprovalPage } from "@/pages/citizen/approval";
 import { RdoPortal } from "@/pages/rdo/portal";
 import { AdminRiskDetection } from "@/pages/admin/fraud";
 import { AdminTransactions } from "@/pages/admin/transactions";
@@ -137,6 +138,7 @@ export default function App() {
         <Route path="merchants" element={<AdminMerchants />} />
         <Route path="bir-accounts" element={<AdminUsers />} />
         <Route path="client-accounts" element={<UserManagement />} />
+        <Route path="citizen-approval" element={<CitizenApprovalPage scope="super-admin" />} />
         <Route path="users-rbac" element={<AdminUsers />} />
         <Route path="subscriptions" element={<MerchantBilling />} />
         <Route path="compliance" element={<AdminCompliance />} />
@@ -173,6 +175,7 @@ export default function App() {
       <Route path="/bir" element={<RequireRole role={["admin", "bir", "super_admin"]}><DashboardLayout portal="bir" /></RequireRole>}>
         <Route index element={<BirDashboard />} />
         <Route path="rdo-registration" element={<BirRdoManagement />} />
+        <Route path="citizen-approval" element={<CitizenApprovalPage scope="bir" />} />
         <Route path="tax-intelligence" element={<BirTaxIntelligenceDashboard />} />
         <Route path="vat-reconciliation" element={<BirTaxIntelligenceDashboard />} />
         <Route path="invoice-matching" element={<BirTaxIntelligenceDashboard />} />

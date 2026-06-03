@@ -9,6 +9,7 @@ import {
   Area, AreaChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -183,6 +184,11 @@ export function SuperAdminDashboard() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={reload} disabled={loading || refreshing}>
             <RefreshCw className={cn("h-3.5 w-3.5", (loading || refreshing) && "animate-spin")} /> Sync Now
+          </Button>
+          <Button asChild variant="outline" size="sm" className="gap-2 text-xs">
+            <Link to="/super-admin/citizen-approval">
+              <UserCheck className="h-3.5 w-3.5" /> Citizen Approval
+            </Link>
           </Button>
           <Button size="sm" className="gap-2 text-xs">
             <Download className="h-3.5 w-3.5" /> Export Executive Pack

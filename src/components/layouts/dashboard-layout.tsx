@@ -896,6 +896,7 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
         { label: "Business Accounts", href: "/super-admin/merchants", icon: Building2 },
         { label: "BIR Accounts", href: "/super-admin/bir-accounts", icon: Landmark },
         { label: "Client Accounts", href: "/super-admin/client-accounts", icon: UserCheck },
+        { label: "Citizen Approval", href: "/super-admin/citizen-approval", icon: ShieldCheck },
         { label: "Users & RBAC", href: "/super-admin/users-rbac", icon: Users },
         { label: "Subscriptions", href: "/super-admin/subscriptions", icon: CreditCard },
       ],
@@ -975,6 +976,7 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
       items: [
         { label: "Revenue Dashboard", href: "/bir", icon: Landmark },
         { label: "RDO Registration", href: "/bir/rdo-registration", icon: UserCheck },
+        { label: "Citizen Approval", href: "/bir/citizen-approval", icon: ShieldCheck },
         { label: "RDO Portal", href: "/rdo", icon: Building2 },
         { label: "Transactions", href: "/admin/transactions", icon: Activity },
         { label: "Business Accounts", href: "/admin/merchants", icon: Building2 },
@@ -1228,6 +1230,7 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
         : "/super-admin";
   const integrationPath = portal === "merchant" ? "/merchant/api-keys" : "/api";
   const securityPath = portal === "merchant" ? "/merchant/profile" : portal === "client" || portal === "consumer" ? "/client/security" : "/soc";
+  const showUtilityAccountLinks = portal !== "client" && portal !== "consumer";
 
   useEffect(() => {
     if (portal !== "client" && portal !== "consumer") {
@@ -1531,22 +1534,28 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
                     <UserCheck className="mr-2 h-4 w-4" />
                     Profile and account details
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate(integrationPath)}>
-                    <Key className="mr-2 h-4 w-4" />
-                    API and integration center
-                  </DropdownMenuItem>
+                  {showUtilityAccountLinks && (
+                    <DropdownMenuItem onClick={() => navigate(integrationPath)}>
+                      <Key className="mr-2 h-4 w-4" />
+                      API and integration center
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => navigate(notificationPath)}>
                     <Bell className="mr-2 h-4 w-4" />
                     Notifications
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate("/verify")}>
-                    <QrCode className="mr-2 h-4 w-4" />
-                    Verify receipt
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate(securityPath)}>
-                    <ShieldCheck className="mr-2 h-4 w-4" />
-                    Security and compliance
-                  </DropdownMenuItem>
+                  {showUtilityAccountLinks && (
+                    <>
+                      <DropdownMenuItem onClick={() => navigate("/verify")}>
+                        <QrCode className="mr-2 h-4 w-4" />
+                        Verify receipt
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate(securityPath)}>
+                        <ShieldCheck className="mr-2 h-4 w-4" />
+                        Security and compliance
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
