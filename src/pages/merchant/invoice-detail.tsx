@@ -23,6 +23,7 @@ import {
 } from "@/lib/invoice-utils";
 import { BirDocumentPreview } from "@/components/invoices/bir-document-preview";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 const API_TOKEN_KEY = "nuers_api_token";
@@ -71,15 +72,11 @@ export function InvoiceDetail() {
       setError("");
 
       try {
-        const response = await fetch(`/api/business-invoices/${encodeURIComponent(id ?? "")}`, {
+        const response = await apiFetch(`/api/business-invoices/${encodeURIComponent(id ?? "")}`, {
           headers: authHeaders(),
           cache: "no-store",
         });
-        const payload = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(payload?.message || "Unable to load this Business Account invoice.");
-        }
+        const payload = await readJsonResponse<{ invoice: Invoice }>(response, "Unable to load this Business Account invoice.");
 
         if (active) setInvoice(payload.invoice);
       } catch (err) {

@@ -40,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { createMerchantAccount, supabase } from "@/lib/supabase";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -262,17 +263,15 @@ function composeRegistrationAddress(form: RegForm) {
 }
 
 async function fetchLocationList<T>(path: string): Promise<T[]> {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error("Location API request failed.");
-  const payload = await response.json();
-  return (payload?.data ?? payload ?? []) as T[];
+  const response = await apiFetch(path, { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse<{ data?: T[] } | T[]>(response, "Location API request failed.");
+  return (Array.isArray(payload) ? payload : payload.data ?? []) as T[];
 }
 
 async function fetchLocationRecord<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error("Location API request failed.");
-  const payload = await response.json();
-  return (payload?.data ?? payload) as T;
+  const response = await apiFetch(path, { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse<{ data?: T } | T>(response, "Location API request failed.");
+  return (payload && typeof payload === "object" && "data" in payload ? (payload as { data?: T }).data : payload) as T;
 }
 
 type SearchableLocationOption = {

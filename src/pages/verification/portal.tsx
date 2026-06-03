@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 
 type VerificationResult = {
   receipt_number: string;
@@ -47,20 +48,14 @@ export function ReceiptVerificationPortal() {
     setMessage("Checking the NUERS national receipt registry...");
 
     try {
-      const response = await fetch(`/api/verify-receipt/${encodeURIComponent(receiptNumber.trim())}`);
-      const payload = await response.json();
-
-      if (!response.ok) {
-        setResult(null);
-        setMessage(payload?.message || "Receipt could not be verified.");
-        return;
-      }
+      const response = await apiFetch(`/api/verify-receipt/${encodeURIComponent(receiptNumber.trim())}`);
+      const payload = await readJsonResponse<{ receipt: VerificationResult }>(response, "Receipt could not be verified.");
 
       setResult(payload.receipt);
       setMessage("Receipt is authentic, digitally signed, and present in the NUERS archive.");
-    } catch {
+    } catch (err) {
       setResult(null);
-      setMessage("Verification service is unavailable. Please try again.");
+      setMessage(err instanceof Error ? err.message : "Verification service is unavailable. Please try again.");
     } finally {
       setLoading(false);
     }

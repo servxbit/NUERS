@@ -256,7 +256,7 @@ export function BirRdoManagement() {
             </div>
             <div className="space-y-2">
               <Label>Portal Email</Label>
-              <Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="rdo047@nuers.com" />
+              <Input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="rdo047@nuers.net" />
             </div>
             <div className="space-y-2">
               <Label>Portal Password</Label>

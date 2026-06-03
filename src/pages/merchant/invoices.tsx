@@ -18,6 +18,7 @@ import {
   BIR_DOCUMENT_TYPES, DOC_TYPE_META, STATUS_META, formatAmount,
   type DocumentType, type Invoice, type InvoiceStatus,
 } from "@/lib/invoice-utils";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { toast } from "sonner";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -178,15 +179,17 @@ export function MerchantInvoices() {
       if (serverStatus !== "all") params.set("status", serverStatus);
       if (typeFilter !== "all") params.set("type", typeFilter);
 
-      const response = await fetch(`/api/business-invoices?${params.toString()}`, {
+      const response = await apiFetch(`/api/business-invoices?${params.toString()}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load Business Account invoices.");
-      }
+      const payload = await readJsonResponse<{
+        merchant?: InvoiceMerchant | null;
+        invoices?: Invoice[];
+        summary?: InvoiceSummary;
+        trend?: InvoiceTrendPoint[];
+        type_distribution?: InvoiceTypePoint[];
+      }>(response, "Unable to load Business Account invoices.");
 
       setMerchant(payload.merchant ?? null);
       setInvoices(payload.invoices ?? []);

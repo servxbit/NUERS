@@ -42,6 +42,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api-url";
 
 type PortalType =
   | "super-admin" | "bir" | "rdo" | "merchant" | "admin" | "consumer" | "client" | "api" | "soc" | "system" | "taxpayer"
@@ -1204,7 +1205,7 @@ export function DashboardLayout({ portal }: { portal: PortalType }) {
       }
 
       try {
-        const response = await fetch("/api/business-accounts/current", {
+        const response = await apiFetch("/api/business-accounts/current", {
           headers: authHeaders(),
           cache: "no-store",
         });

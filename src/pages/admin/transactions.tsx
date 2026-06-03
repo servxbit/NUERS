@@ -20,6 +20,7 @@ import {
   CartesianGrid, ResponsiveContainer, Tooltip,
 } from "recharts";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -547,16 +548,12 @@ export function AdminTransactions() {
         params.set("search", search.trim());
       }
 
-      const response = await fetch(`/api/transactions/overview?${params.toString()}`, {
+      const response = await apiFetch(`/api/transactions/overview?${params.toString()}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const payload = (await response.json()) as TransactionOverviewPayload;
+      const payload = await readJsonResponse<TransactionOverviewPayload>(response, "Unable to load database transactions.");
       const metrics = payload.metrics ?? {};
 
       setTransactions(payload.transactions ?? []);

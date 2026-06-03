@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import { BirDocumentPreview } from "@/components/invoices/bir-document-preview";
 import {
@@ -277,17 +278,13 @@ export function MerchantTransactions() {
       if (branchFilter !== "all") params.set("branch", branchFilter);
       if (paymentFilter !== "all") params.set("payment", paymentFilter);
 
-      const response = await fetch(`/api/merchant/transactions?${params}`, {
+      const response = await apiFetch(`/api/merchant/transactions?${params}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readJsonResponse<TransactionsPayload>(response, "Unable to load API transactions.");
 
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load API transactions.");
-      }
-
-      setData(payload as TransactionsPayload);
+      setData(payload);
     } catch (err) {
       setData(emptyPayload);
       setError(err instanceof Error ? err.message : "Unable to load API transactions.");

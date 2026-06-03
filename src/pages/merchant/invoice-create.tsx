@@ -23,6 +23,7 @@ import {
   validateInvoice, type DocumentType, type LineItem, type TaxType,
 } from "@/lib/invoice-utils";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 // ─── Doc type icons ────────────────────────────────────────────────────────
@@ -178,15 +179,11 @@ export function InvoiceCreate() {
       setSellerMessage("Loading logged-in Business Account...");
 
       try {
-        const response = await fetch("/api/business-accounts/current", {
+        const response = await apiFetch("/api/business-accounts/current", {
           headers: authHeaders(),
           cache: "no-store",
         });
-        const payload = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(payload?.message || "Unable to load logged-in Business Account.");
-        }
+        const payload = await readJsonResponse<{ data: BusinessAccountLookup }>(response, "Unable to load logged-in Business Account.");
 
         const account = payload.data as BusinessAccountLookup;
 
@@ -232,16 +229,18 @@ export function InvoiceCreate() {
       setBuyerLookupMessage("Searching registered NUERS account...");
 
       try {
-        const response = await fetch(`/api/business-accounts/lookup?tin=${encodeURIComponent(digits)}`, {
+        const response = await apiFetch(`/api/business-accounts/lookup?tin=${encodeURIComponent(digits)}`, {
           headers: authHeaders(),
           cache: "no-store",
         });
-        const payload = await response.json().catch(() => ({}));
 
         if (!active) return;
 
-        if (!response.ok) {
-          setBuyerLookupMessage(payload?.message || "No registered NUERS account found for this TIN.");
+        let payload: { data: BusinessAccountLookup };
+        try {
+          payload = await readJsonResponse<{ data: BusinessAccountLookup }>(response, "No registered NUERS account found for this TIN.");
+        } catch (err) {
+          setBuyerLookupMessage(err instanceof Error ? err.message : "No registered NUERS account found for this TIN.");
           return;
         }
 
@@ -372,7 +371,7 @@ export function InvoiceCreate() {
         fmtCsv ? "csv" : null,
       ].filter(Boolean);
 
-      const response = await fetch("/api/business-invoices", {
+      const response = await apiFetch("/api/business-invoices", {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -428,11 +427,7 @@ export function InvoiceCreate() {
         }),
       });
 
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to save invoice to the database.");
-      }
+      await readJsonResponse(response, "Unable to save invoice to the database.");
 
       toast.success(send ? `Invoice ${invoiceNumber} saved and sent.` : `Invoice ${invoiceNumber} saved to database.`);
       navigate("/merchant/invoices");

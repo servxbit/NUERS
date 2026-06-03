@@ -2,6 +2,14 @@
 
 The live `Server Error` happens when Laravel can run but cannot read the live database.
 
+Upload the rebuilt static frontend first:
+
+- Extract `/private/tmp/nuers-net-static-api-path-fix.zip`
+- Upload the extracted files to the `nuers.net` web root
+- Confirm `index.html` references `/assets/index-BEysnBvz.js`
+
+This build routes frontend API calls through `https://nuers.net/public/api/...` instead of the root `/api/...` SPA fallback.
+
 For the MySQL deployment on `nuers.net`, update the server `.env`:
 
 - Set `APP_ENV=production`
@@ -27,10 +35,8 @@ If SSH is unavailable, delete this cached config file in Plesk File Manager:
 bootstrap/cache/config.php
 ```
 
-The remote MySQL database has the NUERS schema and data. The screenshot account currently exists in MySQL:
+The remote MySQL database has the NUERS schema and data. The screenshot account currently exists in MySQL as a Business Account/Merchant:
 
 ```text
 m.sioson@servxbit.com
 ```
-
-If this account should be Super Admin, update its profile role to `super_admin`.

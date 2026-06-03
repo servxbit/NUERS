@@ -21,6 +21,7 @@ import {
   AreaChart, Area, LineChart, Line,
 } from "recharts";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 const API_TOKEN_KEY = "nuers_api_token";
@@ -254,17 +255,13 @@ export function MerchantVatReports() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/merchant/tax-center?year=${encodeURIComponent(year)}`, {
+      const response = await apiFetch(`/api/merchant/tax-center?year=${encodeURIComponent(year)}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse<TaxCenterPayload>(response, "Unable to load database tax center records.");
 
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load database tax center records.");
-      }
-
-      setData(payload as TaxCenterPayload);
+      setData(payload);
     } catch (err) {
       setData({ ...emptyPayload, year: Number(year) || new Date().getFullYear() });
       setError(err instanceof Error ? err.message : "Unable to load database tax center records.");

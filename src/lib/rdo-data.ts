@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 
 export type RdoOffice = {
   id: string;
@@ -95,9 +96,8 @@ export function useRdoOffices(refreshKey = 0) {
       setError(null);
 
       try {
-        const response = await fetch("/api/rdos", { headers: authHeaders() });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.message || "Unable to load RDO offices.");
+        const response = await apiFetch("/api/rdos", { headers: authHeaders() });
+        const payload = await readJsonResponse<{ data?: RdoOffice[] }>(response, "Unable to load RDO offices.");
         if (!cancelled) setOffices(payload.data ?? []);
       } catch (err) {
         if (!cancelled) {
@@ -133,9 +133,8 @@ export function useRdoDashboard(code?: string) {
 
       try {
         const query = code ? `?code=${encodeURIComponent(code)}` : "";
-        const response = await fetch(`/api/rdo/dashboard${query}`, { headers: authHeaders() });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.message || "Unable to load RDO dashboard.");
+        const response = await apiFetch(`/api/rdo/dashboard${query}`, { headers: authHeaders() });
+        const payload = await readJsonResponse<RdoDashboardPayload>(response, "Unable to load RDO dashboard.");
         if (!cancelled) setData(payload);
       } catch (err) {
         if (!cancelled) {
@@ -158,7 +157,7 @@ export function useRdoDashboard(code?: string) {
 }
 
 export async function registerRdoOffice(payload: Record<string, unknown>) {
-  const response = await fetch("/api/rdos", {
+  const response = await apiFetch("/api/rdos", {
     method: "POST",
     headers: {
       ...authHeaders(),
@@ -166,11 +165,7 @@ export async function registerRdoOffice(payload: Record<string, unknown>) {
     },
     body: JSON.stringify(payload),
   });
-  const body = await response.json();
+  const body = await readJsonResponse<{ success: boolean; office: RdoOffice }>(response, "Unable to register RDO office.");
 
-  if (!response.ok) {
-    throw new Error(body?.message || "Unable to register RDO office.");
-  }
-
-  return body as { success: boolean; office: RdoOffice };
+  return body;
 }

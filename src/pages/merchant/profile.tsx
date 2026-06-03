@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 type DocStatus = "verified" | "pending" | "expired" | "missing";
@@ -296,17 +297,15 @@ function sectorDisplay(value?: string | null) {
 }
 
 async function fetchLocationList<T>(path: string): Promise<T[]> {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error("Location API request failed.");
-  const payload = await response.json();
-  return (payload?.data ?? payload ?? []) as T[];
+  const response = await apiFetch(path, { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse<{ data?: T[] } | T[]>(response, "Location API request failed.");
+  return (Array.isArray(payload) ? payload : payload.data ?? []) as T[];
 }
 
 async function fetchLocationRecord<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error("Location API request failed.");
-  const payload = await response.json();
-  return (payload?.data ?? payload) as T;
+  const response = await apiFetch(path, { headers: { Accept: "application/json" } });
+  const payload = await readJsonResponse<{ data?: T } | T>(response, "Location API request failed.");
+  return (payload && typeof payload === "object" && "data" in payload ? (payload as { data?: T }).data : payload) as T;
 }
 
 function normalizeSelectSearch(value: string) {
@@ -631,15 +630,11 @@ export function MerchantProfile() {
     setError("");
 
     try {
-      const response = await fetch("/api/business-accounts/current", {
+      const response = await apiFetch("/api/business-accounts/current", {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load the logged-in Business Account profile.");
-      }
+      const payload = await readJsonResponse<{ data?: BusinessProfilePayload }>(response, "Unable to load the logged-in Business Account profile.");
 
       applyProfile(payload.data ?? {});
     } catch (err) {
@@ -827,16 +822,12 @@ export function MerchantProfile() {
     const formData = new FormData();
     formData.append("logo", logoFile);
 
-    const response = await fetch("/api/business-accounts/current/logo", {
+    const response = await apiFetch("/api/business-accounts/current/logo", {
       method: "POST",
       headers,
       body: formData,
     });
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(payload?.message || "Unable to upload the Business Account logo.");
-    }
+    const payload = await readJsonResponse<{ data?: BusinessProfilePayload | null }>(response, "Unable to upload the Business Account logo.");
 
     return payload.data ?? null;
   }
@@ -855,7 +846,7 @@ export function MerchantProfile() {
       const headers = authHeaders();
       headers.set("Content-Type", "application/json");
 
-      const response = await fetch("/api/business-accounts/current", {
+      const response = await apiFetch("/api/business-accounts/current", {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -887,11 +878,7 @@ export function MerchantProfile() {
           notes: form.notes,
         }),
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to save the Business Account profile.");
-      }
+      const payload = await readJsonResponse<{ data?: BusinessProfilePayload }>(response, "Unable to save the Business Account profile.");
 
       const logoPayload = await uploadCompanyLogo();
       applyProfile(logoPayload ?? payload.data ?? {});

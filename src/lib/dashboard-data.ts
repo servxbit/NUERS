@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 
 export type DashboardKpi = {
   key: string;
@@ -143,14 +144,10 @@ export function useDashboardData(portal: "super-admin" | "bir" | "merchant" | "c
         const query = !blockingLoad && (refreshKey > 0 || refreshIntervalMs > 0)
           ? `?refresh=${Date.now()}`
           : "";
-        const response = await fetch(`/api/dashboards/${portal}${query}`, {
+        const response = await apiFetch(`/api/dashboards/${portal}${query}`, {
           headers: authHeaders(),
         });
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload?.message || "Unable to load dashboard data.");
-        }
+        const payload = await readJsonResponse<DashboardPayload>(response, "Unable to load dashboard data.");
 
         if (!cancelled) {
           setData(payload);

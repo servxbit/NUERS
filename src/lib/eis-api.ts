@@ -147,7 +147,7 @@ export type EisValidationResult = {
 };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     cache: "no-store",
     ...init,
     headers: {
@@ -156,14 +156,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const message = payload?.message || payload?.errors?.[0] || "Unable to complete BIR EIS request.";
-    throw new Error(message);
-  }
-
-  return payload as T;
+  return readJsonResponse<T>(response, "Unable to complete BIR EIS request.");
 }
 
 export function getEisReadiness() {
@@ -176,7 +169,7 @@ export function getEisTransmissions(params: Record<string, string>) {
 }
 
 export function validateEisPayload(payload: string | Record<string, unknown>) {
-  return fetch("/api/bir-eis/validate", {
+  return apiFetch("/api/bir-eis/validate", {
     method: "POST",
     cache: "no-store",
     headers: {
@@ -185,7 +178,12 @@ export function validateEisPayload(payload: string | Record<string, unknown>) {
     },
     body: JSON.stringify({ payload }),
   }).then(async (response) => {
-    const result = await response.json();
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw new Error("API endpoint returned HTML instead of JSON. Check the live API deployment path.");
+    }
+
+    const result = await response.json().catch(() => ({}));
     if (!response.ok && !result?.errors) {
       throw new Error(result?.message || "Unable to validate EIS payload.");
     }
@@ -211,3 +209,4 @@ export function retryEisTransmission(id: string) {
     body: JSON.stringify({}),
   });
 }
+import { apiFetch, readJsonResponse } from "@/lib/api-url";

@@ -17,6 +17,7 @@ import {
 import type { ChartConfig } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from "recharts";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 type ConnectionStatus = "online" | "offline" | "idle";
@@ -148,15 +149,17 @@ export function MerchantPosSettings() {
     setError("");
 
     try {
-      const response = await fetch("/api/merchant/pos-devices", {
+      const response = await apiFetch("/api/merchant/pos-devices", {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load connected API systems.");
-      }
+      const payload = await readJsonResponse<{
+        connections?: ApiConnection[];
+        activity?: ActivityPoint[];
+        hourly_requests?: HourlyPoint[];
+        summary?: Summary;
+        integration?: IntegrationInfo | null;
+      }>(response, "Unable to load connected API systems.");
 
       setConnections(payload.connections ?? []);
       setActivity(payload.activity ?? []);

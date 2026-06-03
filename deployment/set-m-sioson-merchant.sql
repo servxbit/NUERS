@@ -1,6 +1,6 @@
 UPDATE profiles
-SET role = 'super_admin',
-    full_name = 'Mark Sioson',
+SET role = 'merchant',
+    full_name = 'Servxbit Business Account',
     organization = 'Servxbit',
     updated_at = NOW()
 WHERE email = 'm.sioson@servxbit.com';

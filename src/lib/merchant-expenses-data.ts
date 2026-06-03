@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 
 export type MerchantExpense = {
   id: string;
@@ -131,15 +132,11 @@ export function useMerchantExpenses(filters: {
     if (filters.supplier && filters.supplier !== "all") params.set("supplier", filters.supplier);
 
     try {
-      const response = await fetch(`/api/merchant/expenses${params.toString() ? `?${params}` : ""}`, {
+      const response = await apiFetch(`/api/merchant/expenses${params.toString() ? `?${params}` : ""}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load business account expenses.");
-      }
+      const payload = await readJsonResponse<MerchantExpensePayload>(response, "Unable to load business account expenses.");
 
       setData(payload);
     } catch (err) {
@@ -158,16 +155,12 @@ export function useMerchantExpenses(filters: {
 }
 
 export async function createMerchantExpense(values: MerchantExpenseInput): Promise<MerchantExpensePayload> {
-  const response = await fetch("/api/merchant/expenses", {
+  const response = await apiFetch("/api/merchant/expenses", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(values),
   });
-  const payload = await response.json();
+  const payload = await readJsonResponse<MerchantExpensePayload>(response, "Unable to record business account expense.");
 
-  if (!response.ok) {
-    throw new Error(payload?.message || "Unable to record business account expense.");
-  }
-
-  return payload as MerchantExpensePayload;
+  return payload;
 }

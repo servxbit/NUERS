@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/chart";
 import type { ChartConfig } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 type ApiKeySummary = {
@@ -119,15 +120,15 @@ export function MerchantBranches() {
     setError("");
 
     try {
-      const response = await fetch("/api/merchant/api-branches", {
+      const response = await apiFetch("/api/merchant/api-branches", {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load API-connected branches.");
-      }
+      const payload = await readJsonResponse<{
+        branches?: Branch[];
+        chart?: ChartRow[];
+        summary?: Summary;
+      }>(response, "Unable to load API-connected branches.");
 
       setBranches(payload.branches ?? []);
       setChart(payload.chart ?? []);

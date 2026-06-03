@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 
 export type TaxScope = "merchant" | "bir" | "super-admin";
 
@@ -84,15 +85,11 @@ export function useTaxIntelligenceData(scope: TaxScope) {
       setError(null);
 
       try {
-        const response = await fetch(`/api/tax-intelligence/${scope}?_=${Date.now()}`, {
+        const response = await apiFetch(`/api/tax-intelligence/${scope}?_=${Date.now()}`, {
           cache: "no-store",
           headers: authHeaders(),
         });
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload?.message || "Unable to load tax intelligence data.");
-        }
+        const payload = await readJsonResponse<TaxIntelligencePayload>(response, "Unable to load tax intelligence data.");
 
         if (!cancelled) setData(payload);
       } catch (err) {

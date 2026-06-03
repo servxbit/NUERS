@@ -20,6 +20,7 @@ import {
 import type { ChartConfig } from "@/components/ui/chart";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from "recharts";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 type ApiKey = {
@@ -968,15 +969,18 @@ export function MerchantApiKeys() {
     setError("");
 
     try {
-      const response = await fetch("/api/merchant/api-keys", {
+      const response = await apiFetch("/api/merchant/api-keys", {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load API keys from the database.");
-      }
+      const payload = await readJsonResponse<{
+        keys?: ApiKey[];
+        webhooks?: Webhook[];
+        hourly_requests?: ChartPoint[];
+        latency_data?: ChartPoint[];
+        summary?: ApiSummary;
+        integration?: IntegrationInfo | null;
+      }>(response, "Unable to load API keys from the database.");
 
       setKeys(payload.keys ?? []);
       setWebhooks(payload.webhooks ?? []);
@@ -1071,15 +1075,11 @@ export function MerchantApiKeys() {
     setBusy(true);
 
     try {
-      const response = await fetch(`/api/merchant/api-keys/${id}`, {
+      const response = await apiFetch(`/api/merchant/api-keys/${id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to revoke API key.");
-      }
+      await readJsonResponse(response, "Unable to revoke API key.");
 
       toast.success("API key revoked.");
       loadApiKeys();
@@ -1097,16 +1097,12 @@ export function MerchantApiKeys() {
       const headers = authHeaders();
       headers.set("Content-Type", "application/json");
 
-      const response = await fetch(`/api/merchant/api-keys/${id}`, {
+      const response = await apiFetch(`/api/merchant/api-keys/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ active: val }),
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to update API key.");
-      }
+      await readJsonResponse(response, "Unable to update API key.");
 
       toast.success(val ? "Key activated." : "Key deactivated.");
       loadApiKeys();
@@ -1125,7 +1121,7 @@ export function MerchantApiKeys() {
       const headers = authHeaders();
       headers.set("Content-Type", "application/json");
 
-      const response = await fetch("/api/merchant/api-keys", {
+      const response = await apiFetch("/api/merchant/api-keys", {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -1139,11 +1135,7 @@ export function MerchantApiKeys() {
           rate_limit_per_day: newKeyEnv === "live" ? 50000 : 5000,
         }),
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to create API key.");
-      }
+      const payload = await readJsonResponse<{ key: ApiKey }>(response, "Unable to create API key.");
 
       setNewlyCreatedKey(payload.key);
       toast.success(`API key "${newKeyName}" created. Copy it now.`);

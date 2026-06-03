@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
+import { apiFetch, readJsonResponse } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import { BirDocumentPreview } from "@/components/invoices/bir-document-preview";
 
@@ -260,17 +261,13 @@ export function MerchantReceipts() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("channel", typeFilter);
 
-      const response = await fetch(`/api/merchant/receipts${params.toString() ? `?${params}` : ""}`, {
+      const response = await apiFetch(`/api/merchant/receipts${params.toString() ? `?${params}` : ""}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readJsonResponse<ReceiptsPayload>(response, "Unable to load API-generated receipts.");
 
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to load API-generated receipts.");
-      }
-
-      setData(payload as ReceiptsPayload);
+      setData(payload);
     } catch (err) {
       setData(emptyPayload);
       setError(err instanceof Error ? err.message : "Unable to load API-generated receipts.");
@@ -303,15 +300,11 @@ export function MerchantReceipts() {
     setQrResult(null);
 
     try {
-      const response = await fetch(`/api/merchant/receipts/verify?receipt=${encodeURIComponent(needle)}`, {
+      const response = await apiFetch(`/api/merchant/receipts/verify?receipt=${encodeURIComponent(needle)}`, {
         headers: authHeaders(),
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.message || `No API receipt found for "${needle}".`);
-      }
+      const payload = await readJsonResponse<{ receipt: ApiReceipt }>(response, `No API receipt found for "${needle}".`);
 
       const found = payload.receipt as ApiReceipt;
       setQrResult({
