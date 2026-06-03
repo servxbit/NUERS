@@ -1,14 +1,19 @@
 # NUERS Live Server Error Fix
 
-The live login `Server Error` happens when Laravel can run but cannot read the live database.
+The live `Server Error` happens when Laravel can run but cannot read the live database.
 
-For the SQLite deployment, upload `database/database.sqlite` into the Laravel project root on the server and update the server `.env`:
+For the MySQL deployment on `nuers.net`, update the server `.env`:
 
 - Set `APP_ENV=production`
 - Set `APP_DEBUG=false`
 - Set `APP_URL=https://nuers.net`
-- Set `DB_CONNECTION=sqlite`
-- Remove the local Mac-only `DB_DATABASE=/Applications/XAMPP/...` line
+- Set `DB_CONNECTION=mysql`
+- Set `DB_HOST=194.233.94.62`
+- Set `DB_PORT=3306`
+- Set `DB_DATABASE=NUERS`
+- Set `DB_USERNAME=nuers`
+- Set `DB_PASSWORD` to the production database password
+- Remove any old SQLite-only `DB_DATABASE=/Applications/XAMPP/...` line
 
 After upload, clear Laravel cached config:
 
@@ -16,11 +21,16 @@ After upload, clear Laravel cached config:
 php artisan optimize:clear
 ```
 
-The packaged SQLite database includes the screenshot account:
+If SSH is unavailable, delete this cached config file in Plesk File Manager:
+
+```text
+bootstrap/cache/config.php
+```
+
+The remote MySQL database has the NUERS schema and data. The screenshot account currently exists in MySQL:
 
 ```text
 m.sioson@servxbit.com
-role: super_admin
 ```
 
-Use the current known password, then change it after first successful login.
+If this account should be Super Admin, update its profile role to `super_admin`.
