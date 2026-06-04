@@ -165,28 +165,27 @@ const portalConfig: Record<PortalType, { title: string; groups: NavGroup[] }> = 
         section: "Revenue",
         items: [
           { label: "BIR Dashboard", href: "/bir", icon: Landmark },
-          { label: "National Overview", href: "/admin", icon: Globe },
-          { label: "Regional Monitoring", href: "/analytics", icon: Map },
-          { label: "Business Account Revenue", href: "/admin/merchants", icon: Building2 },
-          { label: "Client Transactions", href: "/admin/transactions", icon: Activity },
+          { label: "National Overview", href: "/bir", icon: Globe },
+          { label: "Regional Monitoring", href: "/bir/tax-intelligence", icon: Map },
+          { label: "Business Account Revenue", href: "/bir/business-accounts", icon: Building2 },
+          { label: "Client Transactions", href: "/bir/transactions", icon: Activity },
         ],
       },
       {
         section: "Compliance",
         items: [
           { label: "Receipt Verification", href: "/verify", icon: QrCode },
-          { label: "Compliance Scores", href: "/admin/compliance", icon: ShieldCheck },
-          { label: "Tax Filing Status", href: "/admin/tax-filings", icon: FileText },
-          { label: "Transaction Audit", href: "/audit", icon: ClipboardList },
-          { label: "Fraud Monitoring", href: "/admin/fraud", icon: ShieldAlert },
+          { label: "Compliance Scores", href: "/bir/compliance", icon: ShieldCheck },
+          { label: "Tax Filing Status", href: "/bir/tax-filings", icon: FileText },
+          { label: "Transaction Audit", href: "/bir/reports", icon: ClipboardList },
         ],
       },
       {
         section: "Reports",
         items: [
-          { label: "Daily Reports", href: "/admin/reports", icon: Download },
-          { label: "Forecasts", href: "/executive", icon: TrendingUp },
-          { label: "AI Recommendations", href: "/ai", icon: Brain },
+          { label: "Daily Reports", href: "/bir/reports", icon: Download },
+          { label: "Forecasts", href: "/bir/forecasts", icon: TrendingUp },
+          { label: "AI Recommendations", href: "/bir/ai-audit", icon: Brain },
         ],
       },
     ],
@@ -987,7 +986,7 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
       section: "Review",
       items: [
         { label: "Tax Filings", href: "/bir/tax-filings", icon: FileText },
-        { label: "Forecasts", href: "/executive", icon: TrendingUp },
+        { label: "Forecasts", href: "/bir/forecasts", icon: TrendingUp },
       ],
     },
     {

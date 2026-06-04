@@ -98,6 +98,16 @@ function roleDefaultPath(role: string | null | undefined): string {
   return "/super-admin";
 }
 
+function roleSidebarPortal(role: string | null | undefined): React.ComponentProps<typeof DashboardLayout>["portal"] {
+  if (role === "super_admin") return "super-admin";
+  if (role === "admin") return "admin";
+  if (role === "bir") return "bir";
+  if (role === "rdo") return "rdo";
+  if (role === "merchant") return "merchant";
+  if (role === "consumer" || role === "client") return "client";
+  return "super-admin";
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -119,6 +129,12 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
   if (loading) return null;
   if (user) return <Navigate to={roleDefaultPath(profile?.role)} replace />;
   return <>{children}</>;
+}
+
+function RoleScopedDashboardLayout() {
+  const { profile, loading } = useAuth();
+  if (loading) return null;
+  return <DashboardLayout portal={roleSidebarPortal(profile?.role)} />;
 }
 
 export default function App() {
@@ -181,6 +197,7 @@ export default function App() {
         <Route path="compliance" element={<AdminCompliance />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="tax-filings" element={<AdminTaxFilings />} />
+        <Route path="forecasts" element={<ExecutiveAnalytics />} />
         <Route path="tax-intelligence" element={<BirTaxIntelligenceDashboard />} />
         <Route path="vat-reconciliation" element={<BirTaxIntelligenceDashboard />} />
         <Route path="invoice-matching" element={<BirTaxIntelligenceDashboard />} />
@@ -340,7 +357,7 @@ export default function App() {
       </Route>
 
       {/* Executive Analytics */}
-      <Route path="/executive" element={<RequireAuth><DashboardLayout portal="executive" /></RequireAuth>}>
+      <Route path="/executive" element={<RequireAuth><RoleScopedDashboardLayout /></RequireAuth>}>
         <Route index element={<ExecutiveAnalytics />} />
       </Route>
 
