@@ -1,175 +1,302 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Users, Plus, Search, MoreHorizontal, Shield,
-  UserCheck, UserX, Mail, Key, Edit, Trash2,
+  Edit,
+  Key,
+  Mail,
+  MoreHorizontal,
+  RefreshCw,
+  Search,
+  Shield,
+  Trash2,
+  UserCheck,
+  Users,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
+import { publicAssetUrl } from "@/lib/api-url";
 
-type AdminUser = {
-  id: string;
-  name: string;
+type ProfileRow = {
+  id: string | number;
   email: string;
   role: string;
-  department: string;
-  status: "active" | "inactive" | "suspended";
-  lastLogin: string;
-  mfaEnabled: boolean;
-  permissions: string[];
+  full_name: string | null;
+  organization: string | null;
+  tin?: string | null;
+  tin_bound_at?: string | null;
+  profile_photo_url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-const INITIAL_USERS: AdminUser[] = [
-  { id: "1", name: "System Administrator", email: "servxbit@gmail.com", role: "super_admin", department: "IT", status: "active", lastLogin: "Just now", mfaEnabled: true, permissions: ["all"] },
-  { id: "2", name: "Juan Dela Cruz", email: "jdelacruz@bir.gov.ph", role: "regulator", department: "Compliance", status: "active", lastLogin: "2 hr ago", mfaEnabled: true, permissions: ["merchants", "filings", "compliance"] },
-  { id: "3", name: "Maria Santos", email: "msantos@bir.gov.ph", role: "analyst", department: "Analytics", status: "active", lastLogin: "1 day ago", mfaEnabled: true, permissions: ["analytics", "reports"] },
-  { id: "4", name: "Pedro Reyes", email: "preyes@bir.gov.ph", role: "auditor", department: "Audit", status: "active", lastLogin: "3 hr ago", mfaEnabled: false, permissions: ["merchants", "audit", "risk"] },
-  { id: "5", name: "Ana Lim", email: "alim@bir.gov.ph", role: "viewer", department: "Legal", status: "inactive", lastLogin: "5 days ago", mfaEnabled: false, permissions: ["view_only"] },
-  { id: "6", name: "Carlos Mendoza", email: "cmendoza@bir.gov.ph", role: "analyst", department: "Tax Operations", status: "suspended", lastLogin: "14 days ago", mfaEnabled: true, permissions: ["filings"] },
-];
-
-const roleConfig: Record<string, { label: string; color: string }> = {
-  super_admin: { label: "Super Admin", color: "bg-primary text-primary-foreground" },
-  regulator: { label: "Regulator", color: "bg-destructive/10 text-destructive" },
-  analyst: { label: "Analyst", color: "bg-secondary text-secondary-foreground" },
-  auditor: { label: "Auditor", color: "bg-warning/10 text-warning-foreground" },
-  viewer: { label: "Viewer", color: "bg-muted text-muted-foreground" },
+type AdminUsersProps = {
+  title?: string;
+  description?: string;
+  allowedRoles?: string[];
+  defaultRoleFilter?: string;
 };
 
-const rolePermissions: Record<string, string[]> = {
-  regulator: ["merchants", "filings", "compliance"],
-  analyst: ["analytics", "reports"],
-  auditor: ["merchants", "audit", "risk"],
-  viewer: ["view_only"],
+const roleConfig: Record<string, { label: string; color: string; permissions: string[] }> = {
+  super_admin: {
+    label: "Super Admin",
+    color: "bg-primary text-primary-foreground",
+    permissions: ["Platform control", "Users and RBAC", "System settings"],
+  },
+  admin: {
+    label: "Admin",
+    color: "bg-primary/10 text-primary",
+    permissions: ["Operations", "Reports", "User support"],
+  },
+  bir: {
+    label: "BIR Regulator",
+    color: "bg-destructive/10 text-destructive",
+    permissions: ["BIR dashboard", "Approvals", "Tax review"],
+  },
+  rdo: {
+    label: "RDO Officer",
+    color: "bg-warning/10 text-warning-foreground",
+    permissions: ["RDO operations", "Regional review", "Citizen approval"],
+  },
+  merchant: {
+    label: "Business Account",
+    color: "bg-secondary text-secondary-foreground",
+    permissions: ["Merchant dashboard", "Receipts", "Invoices"],
+  },
+  client: {
+    label: "Client",
+    color: "bg-muted text-muted-foreground",
+    permissions: ["Client portal", "Receipt vault", "TIN barcode"],
+  },
+  consumer: {
+    label: "Consumer",
+    color: "bg-muted text-muted-foreground",
+    permissions: ["Client portal", "Receipt verification"],
+  },
 };
 
-export function AdminUsers() {
-  const [users, setUsers] = useState<AdminUser[]>(INITIAL_USERS);
+function initialsFor(value?: string | null) {
+  return (value || "UA")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "UA";
+}
+
+function roleLabel(role: string) {
+  return roleConfig[role]?.label ?? role.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function dateLabel(value?: string | null) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export function AdminUsers({
+  title = "Users & RBAC",
+  description = "Manage platform profiles, roles, and access records backed by the NUERS database.",
+  allowedRoles,
+  defaultRoleFilter = "all",
+}: AdminUsersProps) {
+  const { user: currentUser } = useAuth();
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const [addOpen, setAddOpen] = useState(false);
-  const [editUser, setEditUser] = useState<AdminUser | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [roleFilter, setRoleFilter] = useState(defaultRoleFilter);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [editUser, setEditUser] = useState<ProfileRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProfileRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  // Add user form state
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newDepartment, setNewDepartment] = useState("");
-  const [newRole, setNewRole] = useState("");
-  const [newMfa, setNewMfa] = useState(true);
+  const roleOptions = useMemo(() => {
+    const roles = allowedRoles?.length ? allowedRoles : Object.keys(roleConfig);
+    return roles.filter((role) => roleConfig[role]);
+  }, [allowedRoles]);
 
-  const filtered = users.filter((u) => {
-    const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
-    const matchRole = roleFilter === "all" || u.role === roleFilter;
-    return matchSearch && matchRole;
-  });
+  async function loadProfiles(options: { quiet?: boolean } = {}) {
+    if (options.quiet) setRefreshing(true);
+    else setLoading(true);
 
-  function handleCreateUser() {
-    if (!newName || !newEmail || !newRole) {
-      toast.error("Please fill in all required fields.");
-      return;
+    let query = supabase
+      .from<ProfileRow[]>("profiles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (allowedRoles?.length) {
+      query = query.in("role", allowedRoles);
     }
-    const created: AdminUser = {
-      id: Date.now().toString(),
-      name: newName,
-      email: newEmail,
-      department: newDepartment,
-      role: newRole,
-      status: "active",
-      lastLogin: "Never",
-      mfaEnabled: newMfa,
-      permissions: rolePermissions[newRole] ?? [],
-    };
-    setUsers((prev) => [created, ...prev]);
-    toast.success(`User "${newName}" created successfully.`);
-    setNewName("");
-    setNewEmail("");
-    setNewDepartment("");
-    setNewRole("");
-    setNewMfa(true);
-    setAddOpen(false);
+
+    const { data, error } = await query;
+
+    if (error) {
+      toast.error(error.message || "Unable to load user profiles.");
+      setProfiles([]);
+    } else {
+      setProfiles(data ?? []);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   }
 
-  function handleSuspend(userId: string) {
-    setUsers((prev) =>
-      prev.map((u) => u.id === userId ? { ...u, status: u.status === "suspended" ? "active" : "suspended" } : u)
-    );
-    const user = users.find((u) => u.id === userId);
-    const next = user?.status === "suspended" ? "reactivated" : "suspended";
-    toast.success(`Account ${next}.`);
-  }
+  useEffect(() => {
+    loadProfiles();
+  }, [allowedRoles?.join("|")]);
 
-  function handleResetPassword(user: AdminUser) {
-    toast.success(`Password reset email sent to ${user.email}.`);
-  }
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  function handleSendEmail(user: AdminUser) {
-    toast.success(`Email notification sent to ${user.email}.`);
-  }
+    return profiles.filter((profile) => {
+      const fullName = profile.full_name || profile.email || "Unnamed user";
+      const organization = profile.organization || "";
+      const tin = profile.tin || "";
+      const matchesSearch = !query || [fullName, profile.email, organization, tin, profile.role]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+      const matchesRole = roleFilter === "all" || profile.role === roleFilter;
 
-  function handleEditUser(user: AdminUser) {
-    setEditUser(user);
-  }
+      return matchesSearch && matchesRole;
+    });
+  }, [profiles, roleFilter, search]);
 
-  function handleSaveEdit() {
+  const activeRoles = roleOptions.map((role) => ({
+    role,
+    label: roleLabel(role),
+    count: profiles.filter((profile) => profile.role === role).length,
+  }));
+
+  async function handleSaveEdit() {
     if (!editUser) return;
-    setUsers((prev) => prev.map((u) => u.id === editUser.id ? editUser : u));
-    toast.success(`User "${editUser.name}" updated.`);
-    setEditUser(null);
+    setSaving(true);
+
+    const payload = {
+      full_name: editUser.full_name ?? "",
+      email: editUser.email,
+      organization: editUser.organization ?? "",
+      role: editUser.role,
+      tin: editUser.tin ?? null,
+    };
+
+    const { error } = await supabase.from("profiles").update(payload).eq("id", editUser.id);
+
+    if (error) {
+      toast.error(error.message || "Unable to update user profile.");
+    } else {
+      setProfiles((current) => current.map((profile) => profile.id === editUser.id ? { ...profile, ...payload } : profile));
+      toast.success(`${editUser.full_name || editUser.email} updated.`);
+      setEditUser(null);
+    }
+
+    setSaving(false);
   }
 
-  function handleDeleteUser(user: AdminUser) {
-    setUsers((prev) => prev.filter((u) => u.id !== user.id));
-    toast.success(`User "${user.name}" deleted.`);
-    setDeleteTarget(null);
+  async function handleDeleteUser() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+
+    const { error, count } = await supabase.from("profiles").delete().eq("id", deleteTarget.id);
+
+    if (error) {
+      toast.error(error.message || "Unable to delete user.");
+    } else {
+      setProfiles((current) => current.filter((profile) => profile.id !== deleteTarget.id));
+      toast.success(`${deleteTarget.full_name || deleteTarget.email} deleted from NUERS.`);
+      if (count === 0) {
+        toast.info("No matching database row was removed.");
+      }
+      setDeleteTarget(null);
+    }
+
+    setDeleting(false);
+  }
+
+  function sendStub(message: string) {
+    toast.info(message);
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">User Management</h1>
-          <p className="text-sm text-muted-foreground">Manage government staff access, roles, and permissions</p>
+          <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button size="sm" className="gap-2" onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4" /> Add User
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => loadProfiles({ quiet: true })} disabled={loading || refreshing}>
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        {[
-          { label: "Total Users", value: users.length, icon: Users },
-          { label: "Active", value: users.filter((u) => u.status === "active").length, icon: UserCheck },
-          { label: "MFA Enabled", value: users.filter((u) => u.mfaEnabled).length, icon: Shield },
-          { label: "Suspended", value: users.filter((u) => u.status === "suspended").length, icon: UserX },
-        ].map((s) => (
-          <Card key={s.label}>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Total Profiles</span>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <p className="mt-1 text-2xl font-bold text-foreground">{profiles.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Shown</span>
+              <UserCheck className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <p className="mt-1 text-2xl font-bold text-foreground">{filtered.length}</p>
+          </CardContent>
+        </Card>
+        {activeRoles.slice(0, 2).map((item) => (
+          <Card key={item.role}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">{s.label}</span>
-                <s.icon className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">{item.label}</span>
+                <Shield className="h-4 w-4 text-muted-foreground" />
               </div>
-              <p className="mt-1 text-2xl font-bold text-foreground">{s.value}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{item.count}</p>
             </CardContent>
           </Card>
         ))}
@@ -178,211 +305,166 @@ export function AdminUsers() {
       <Card>
         <CardContent className="p-5">
           <div className="mb-4 flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-0 basis-full sm:min-w-[200px] sm:basis-auto">
+            <div className="relative flex-1 min-w-0 basis-full sm:min-w-[240px] sm:basis-auto">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+              <Input
+                placeholder="Search name, email, TIN, organization..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="pl-9"
+              />
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="w-full sm:w-40">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Role" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="super_admin">Super Admin</SelectItem>
-                <SelectItem value="regulator">Regulator</SelectItem>
-                <SelectItem value="analyst">Analyst</SelectItem>
-                <SelectItem value="auditor">Auditor</SelectItem>
-                <SelectItem value="viewer">Viewer</SelectItem>
+                {roleOptions.map((role) => (
+                  <SelectItem key={role} value={role}>{roleLabel(role)}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
-          <div className="space-y-2">
-            {filtered.map((user) => (
-              <div key={user.id} className="flex items-center gap-4 rounded-lg border p-4 hover:bg-muted/30 transition-colors">
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                    {user.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-foreground">{user.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${roleConfig[user.role]?.color}`}>
-                      {roleConfig[user.role]?.label}
-                    </span>
-                    {user.mfaEnabled && (
-                      <Badge variant="outline" className="gap-1 text-[10px]">
-                        <Shield className="h-2.5 w-2.5" /> MFA
-                      </Badge>
-                    )}
-                    {!user.mfaEnabled && (
-                      <Badge variant="secondary" className="text-[10px] text-warning">MFA Off</Badge>
-                    )}
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-10 text-center">
+              <Users className="mx-auto h-10 w-10 text-muted-foreground" />
+              <p className="mt-3 text-sm font-medium text-foreground">No user profiles found</p>
+              <p className="text-xs text-muted-foreground">Try adjusting the role filter or search text.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((profile) => {
+                const displayName = profile.full_name || profile.email || "Unnamed user";
+                const isCurrent = String(currentUser?.id ?? "") === String(profile.id);
+
+                return (
+                  <div key={String(profile.id)} className="flex items-center gap-4 rounded-lg border p-4 transition-colors hover:bg-muted/30">
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage src={publicAssetUrl(profile.profile_photo_url)} alt={displayName} />
+                      <AvatarFallback className="bg-primary text-sm text-primary-foreground">
+                        {initialsFor(displayName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{displayName}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${roleConfig[profile.role]?.color ?? "bg-secondary text-secondary-foreground"}`}>
+                          {roleLabel(profile.role)}
+                        </span>
+                        {isCurrent && <Badge variant="outline" className="text-[10px]">Current session</Badge>}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-3">
+                        <span className="text-xs text-muted-foreground">{profile.email}</span>
+                        {profile.organization && <span className="text-xs text-muted-foreground">{profile.organization}</span>}
+                        {profile.tin && <span className="font-mono text-xs text-muted-foreground">{profile.tin}</span>}
+                        <span className="text-xs text-muted-foreground">Updated: {dateLabel(profile.updated_at)}</span>
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditUser(profile)}>
+                          <Edit className="mr-2 h-3.5 w-3.5" /> Edit Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => sendStub(`Password reset workflow queued for ${profile.email}.`)}>
+                          <Key className="mr-2 h-3.5 w-3.5" /> Reset Password
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => sendStub(`Notification workflow queued for ${profile.email}.`)}>
+                          <Mail className="mr-2 h-3.5 w-3.5" /> Send Email
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          disabled={isCurrent}
+                          onClick={() => setDeleteTarget(profile)}
+                        >
+                          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete User
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{user.email}</span>
-                    <span className="text-xs text-muted-foreground">{user.department}</span>
-                    <span className="text-xs text-muted-foreground">Last: {user.lastLogin}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={user.status === "active" ? "default" : user.status === "suspended" ? "destructive" : "secondary"}
-                    className="text-[10px]"
-                  >
-                    {user.status}
-                  </Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditUser(user)}>
-                        <Edit className="mr-2 h-3.5 w-3.5" /> Edit User
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleResetPassword(user)}>
-                        <Key className="mr-2 h-3.5 w-3.5" /> Reset Password
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleSendEmail(user)}>
-                        <Mail className="mr-2 h-3.5 w-3.5" /> Send Email
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleSuspend(user.id)}>
-                        <UserX className="mr-2 h-3.5 w-3.5" />
-                        {user.status === "suspended" ? "Reactivate Account" : "Suspend Account"}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(user)}>
-                        <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete User
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Add User Dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Government User</DialogTitle>
-            <DialogDescription>Create a new staff account with appropriate role and permissions.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Full Name</Label>
-              <Input placeholder="e.g. Juan Dela Cruz" value={newName} onChange={(e) => setNewName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Official Email</Label>
-              <Input type="email" placeholder="user@bir.gov.ph" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Department</Label>
-              <Input placeholder="e.g. Compliance Division" value={newDepartment} onChange={(e) => setNewDepartment(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Role</Label>
-              <Select value={newRole} onValueChange={setNewRole}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="regulator">Regulator</SelectItem>
-                  <SelectItem value="analyst">Analyst</SelectItem>
-                  <SelectItem value="auditor">Auditor</SelectItem>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <p className="text-sm font-medium">Require MFA</p>
-                <p className="text-xs text-muted-foreground">Enforce two-factor authentication</p>
-              </div>
-              <Switch checked={newMfa} onCheckedChange={setNewMfa} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateUser}>Create User</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit User Dialog */}
       <Dialog open={!!editUser} onOpenChange={() => setEditUser(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>Update the user's details and role.</DialogDescription>
+            <DialogTitle>Edit User Profile</DialogTitle>
+            <DialogDescription>Update the profile fields used by the NUERS role-based portals.</DialogDescription>
           </DialogHeader>
           {editUser && (
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label>Full Name</Label>
-                <Input value={editUser.name} onChange={(e) => setEditUser({ ...editUser, name: e.target.value })} />
+                <Input value={editUser.full_name ?? ""} onChange={(event) => setEditUser({ ...editUser, full_name: event.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Email</Label>
-                <Input type="email" value={editUser.email} onChange={(e) => setEditUser({ ...editUser, email: e.target.value })} />
+                <Input type="email" value={editUser.email} onChange={(event) => setEditUser({ ...editUser, email: event.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Department</Label>
-                <Input value={editUser.department} onChange={(e) => setEditUser({ ...editUser, department: e.target.value })} />
+                <Label>Organization</Label>
+                <Input value={editUser.organization ?? ""} onChange={(event) => setEditUser({ ...editUser, organization: event.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>TIN</Label>
+                <Input value={editUser.tin ?? ""} onChange={(event) => setEditUser({ ...editUser, tin: event.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
-                <Select value={editUser.role} onValueChange={(v) => setEditUser({ ...editUser, role: v })}>
+                <Select value={editUser.role} onValueChange={(value) => setEditUser({ ...editUser, role: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="regulator">Regulator</SelectItem>
-                    <SelectItem value="analyst">Analyst</SelectItem>
-                    <SelectItem value="auditor">Auditor</SelectItem>
-                    <SelectItem value="viewer">Viewer</SelectItem>
+                    {roleOptions.map((role) => (
+                      <SelectItem key={role} value={role}>{roleLabel(role)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <p className="text-sm font-medium">MFA Enabled</p>
-                </div>
-                <Switch checked={editUser.mfaEnabled} onCheckedChange={(v) => setEditUser({ ...editUser, mfaEnabled: v })} />
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
-            <Button onClick={handleSaveEdit}>Save Changes</Button>
+            <Button onClick={handleSaveEdit} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to permanently delete <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email})?
+              This will permanently delete <strong>{deleteTarget?.full_name || deleteTarget?.email}</strong> and remove the linked login account when one exists.
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteTarget && handleDeleteUser(deleteTarget)}
+              onClick={handleDeleteUser}
+              disabled={deleting}
             >
-              Delete User
+              {deleting ? "Deleting..." : "Delete User"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

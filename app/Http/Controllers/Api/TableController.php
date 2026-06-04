@@ -9,10 +9,12 @@ use App\Models\MerchantTransaction;
 use App\Models\Profile;
 use App\Models\SystemNotification;
 use App\Models\TransactionReceipt;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 
 class TableController extends Controller
 {
@@ -102,11 +104,72 @@ class TableController extends Controller
         $query = $model::query();
         $this->applyFilters($query, $request);
 
+        if ($model === Profile::class) {
+            return $this->destroyProfiles($request, $query);
+        }
+
+        if ($model === ClientAccount::class) {
+            return $this->destroyClientAccounts($request, $query);
+        }
+
         $affected = $query->delete();
 
         return response()->json([
             'data' => null,
             'count' => $affected,
+        ]);
+    }
+
+    private function destroyProfiles(Request $request, Builder $query): JsonResponse
+    {
+        $profiles = (clone $query)->get(['id']);
+        $ids = $profiles->pluck('id')->map(fn ($id) => (int) $id)->filter()->values();
+
+        if ($ids->isEmpty()) {
+            return response()->json(['data' => null, 'count' => 0]);
+        }
+
+        if ($currentUser = $this->userFromRequest($request)) {
+            abort_if($ids->contains((int) $currentUser->id), 422, 'You cannot delete your own active admin account.');
+        }
+
+        DB::transaction(function () use ($ids, $query): void {
+            $query->delete();
+            User::whereIn('id', $ids)->delete();
+        });
+
+        return response()->json([
+            'data' => null,
+            'count' => $ids->count(),
+        ]);
+    }
+
+    private function destroyClientAccounts(Request $request, Builder $query): JsonResponse
+    {
+        $accounts = (clone $query)->get(['id', 'user_id']);
+        $ids = $accounts->pluck('id')->filter()->values();
+        $userIds = $accounts->pluck('user_id')->map(fn ($id) => $id ? (int) $id : null)->filter()->values();
+
+        if ($ids->isEmpty()) {
+            return response()->json(['data' => null, 'count' => 0]);
+        }
+
+        if ($currentUser = $this->userFromRequest($request)) {
+            abort_if($userIds->contains((int) $currentUser->id), 422, 'You cannot delete your own active account.');
+        }
+
+        DB::transaction(function () use ($query, $userIds): void {
+            $query->delete();
+
+            if ($userIds->isNotEmpty()) {
+                Profile::whereIn('id', $userIds)->delete();
+                User::whereIn('id', $userIds)->delete();
+            }
+        });
+
+        return response()->json([
+            'data' => null,
+            'count' => $ids->count(),
         ]);
     }
 
@@ -164,5 +227,16 @@ class TableController extends Controller
         }
 
         return $payload;
+    }
+
+    private function userFromRequest(Request $request): ?User
+    {
+        $token = $request->bearerToken();
+
+        if (! $token) {
+            return null;
+        }
+
+        return User::where('api_token', $token)->first();
     }
 }

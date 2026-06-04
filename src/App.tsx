@@ -31,6 +31,7 @@ import { AdminTaxFilings } from "@/pages/admin/tax-filings";
 import { AdminCompliance } from "@/pages/admin/compliance";
 import { AdminAudit } from "@/pages/admin/audit";
 import { AdminUsers } from "@/pages/admin/users";
+import { AdminClientAccounts } from "@/pages/admin/client-accounts";
 import { AdminNotifications } from "@/pages/admin/notifications";
 import { AdminReports } from "@/pages/admin/reports";
 import { ConsumerPortal } from "@/pages/consumer/portal";
@@ -152,8 +153,8 @@ export default function App() {
         <Route path="revenue-analytics" element={<ExecutiveAnalytics />} />
         <Route path="blueprint" element={<PlatformArchitecture />} />
         <Route path="merchants" element={<AdminMerchants />} />
-        <Route path="bir-accounts" element={<AdminUsers />} />
-        <Route path="client-accounts" element={<UserManagement />} />
+        <Route path="bir-accounts" element={<AdminUsers title="BIR Accounts" description="Manage BIR regulator and RDO officer profiles backed by the live NUERS database." allowedRoles={["bir", "rdo"]} />} />
+        <Route path="client-accounts" element={<AdminClientAccounts />} />
         <Route path="citizen-approval" element={<CitizenApprovalPage scope="super-admin" />} />
         <Route path="users-rbac" element={<AdminUsers />} />
         <Route path="subscriptions" element={<MerchantBilling />} />
