@@ -35,6 +35,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useLocation } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +67,26 @@ const iconMap = {
 };
 
 const colors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+
+type TaxCenterConfig = {
+  title: string;
+  badge: string;
+  description: string;
+  primaryAction: string;
+  secondaryAction: string;
+  mainSeries: string;
+  mainChartTitle: string;
+  mainChartDescription: string;
+  tableTitle: string;
+  tableDescription: string;
+  primaryRecordKey: string;
+  secondaryTitle: string;
+  secondaryRecordKey: string;
+  modulesTitle: string;
+  graphTitle: string;
+  graphDescription: string;
+  modules: string[][];
+};
 
 const scopeConfig = {
   merchant: {
@@ -150,25 +171,128 @@ const scopeConfig = {
       ["Scalable Controls", "Operate nationwide tax compliance, B2B reconciliation, revenue intelligence, and electronic receipt infrastructure."],
     ],
   },
-} satisfies Record<TaxScope, {
-  title: string;
-  badge: string;
-  description: string;
-  primaryAction: string;
-  secondaryAction: string;
-  mainSeries: string;
-  mainChartTitle: string;
-  mainChartDescription: string;
-  tableTitle: string;
-  tableDescription: string;
-  primaryRecordKey: string;
-  secondaryTitle: string;
-  secondaryRecordKey: string;
-  modulesTitle: string;
-  graphTitle: string;
-  graphDescription: string;
-  modules: string[][];
-}>;
+} satisfies Record<TaxScope, TaxCenterConfig>;
+
+const birModuleConfig: Record<string, Partial<TaxCenterConfig>> = {
+  "tax-intelligence": {},
+  "vat-reconciliation": {
+    title: "VAT Reconciliation Center",
+    badge: "VAT Reconciliation",
+    description:
+      "Review seller output VAT, buyer input VAT, EWT, and reconciliation variances across BIR-monitored business accounts.",
+    primaryAction: "Run VAT Review",
+    secondaryAction: "Export VAT Findings",
+    mainChartTitle: "VAT and EWT Reconciliation Trend",
+    mainChartDescription: "VAT collections, EWT movement, and flagged reconciliation variance by period.",
+    tableTitle: "VAT Reconciliation Ledger",
+    tableDescription: "Seller and buyer transaction pairs with VAT, EWT, status, risk, and reconciliation score.",
+    secondaryTitle: "VAT Risk Exceptions",
+    modulesTitle: "VAT Reconciliation Controls",
+    modules: [
+      ["Output VAT Validation", "Cross-check seller output VAT against transaction ledgers and posted electronic receipts."],
+      ["Input VAT Validation", "Match buyer input VAT claims against seller-issued invoices and receipt references."],
+      ["Variance Detection", "Highlight missing, duplicated, disputed, or materially mismatched VAT records."],
+    ],
+  },
+  "invoice-matching": {
+    title: "National Invoice Matching Center",
+    badge: "Invoice Matching",
+    description:
+      "Match seller invoices against buyer purchase records, VAT claims, EWT records, and receipt references for BIR review.",
+    primaryAction: "Run Match Review",
+    secondaryAction: "Export Match Queue",
+    mainChartTitle: "Invoice Match Throughput",
+    mainChartDescription: "Matched, pending, disputed, and high-risk invoice activity by period.",
+    tableTitle: "Invoice Matching Queue",
+    tableDescription: "Invoice pairs grouped by business account, counterparty, amount, VAT, EWT, status, and risk score.",
+    secondaryTitle: "Linked Tax Risk Signals",
+    modulesTitle: "Invoice Matching Controls",
+    graphTitle: "Invoice Relationship Map",
+    graphDescription: "Seller-to-buyer invoice relationships, mismatches, and transaction-flow risk signals.",
+    modules: [
+      ["Matched Invoices", "Validated seller and buyer records with aligned VAT, EWT, amount, and receipt references."],
+      ["Pending Review", "Invoice pairs requiring BIR or system review because supporting records are incomplete."],
+      ["Mismatch Detection", "Detects duplicated invoices, missing buyer records, VAT variances, and suspicious counterparties."],
+    ],
+  },
+  network: {
+    title: "B2B Network Intelligence",
+    badge: "B2B Network",
+    description:
+      "Map supplier, customer, and business-account transaction relationships to detect circular flows and unusual revenue chains.",
+    primaryAction: "Open Network Case",
+    secondaryAction: "Export Network Map",
+    mainChartTitle: "B2B Transaction Network Trend",
+    mainChartDescription: "Network volume, VAT movement, EWT movement, and flagged relationship activity by period.",
+    tableTitle: "Network Transaction Pairs",
+    tableDescription: "Business-to-business transaction pairs with amount, VAT, EWT, relationship status, and risk score.",
+    secondaryTitle: "Network Risk Signals",
+    modulesTitle: "B2B Network Controls",
+    graphTitle: "B2B Relationship Map",
+    graphDescription: "Supplier and customer relationship edges with volume, relationship type, and risk classification.",
+    modules: [
+      ["Supplier Network", "Shows supplier relationships, high-volume counterparties, and unusual dependency patterns."],
+      ["Customer Network", "Shows buyer relationships, revenue chains, and repeated counterparties."],
+      ["Circular Flow Detection", "Flags relationship loops, invoice factories, and suspicious transaction chains."],
+    ],
+  },
+  "risk-scoring": {
+    title: "Taxpayer Risk Scoring Center",
+    badge: "Risk Scoring",
+    description:
+      "Prioritize taxpayers using VAT mismatches, EWT irregularities, late filings, suspicious counterparties, and compliance history.",
+    primaryAction: "Review High Risk",
+    secondaryAction: "Export Risk Scores",
+    mainChartTitle: "Tax Risk Trend",
+    mainChartDescription: "Risk movement, fraud alerts, VAT exposure, and EWT exposure by period.",
+    tableTitle: "Risk-Scored Taxpayer Queue",
+    tableDescription: "Taxpayers and counterparties ranked by risk level, exposure, status, and intelligence score.",
+    primaryRecordKey: "tax_risks",
+    secondaryTitle: "Invoice Evidence Linked to Risk",
+    secondaryRecordKey: "invoice_matches",
+    modulesTitle: "Risk Scoring Controls",
+    modules: [
+      ["VAT Risk", "Ranks taxpayers with recurring VAT variance, unsupported claims, or unusual filing movement."],
+      ["Counterparty Risk", "Scores business relationships using transaction concentration and mismatch patterns."],
+      ["Audit Priority", "Surfaces high-impact taxpayers and cases for BIR review and audit planning."],
+    ],
+  },
+  "ai-audit": {
+    title: "AI Audit Assistant",
+    badge: "AI Audit",
+    description:
+      "Use AI-assisted tax intelligence to surface audit leads, summarize risk evidence, and prioritize BIR investigation queues.",
+    primaryAction: "Generate Audit Lead",
+    secondaryAction: "Export Audit Pack",
+    mainChartTitle: "AI Audit Signal Trend",
+    mainChartDescription: "Audit signal movement across VAT, EWT, invoice matching, and network risk indicators.",
+    tableTitle: "AI Audit Lead Queue",
+    tableDescription: "Prioritized taxpayers, counterparties, invoices, and risk findings recommended for BIR review.",
+    primaryRecordKey: "tax_risks",
+    secondaryTitle: "Supporting Invoice Matches",
+    secondaryRecordKey: "invoice_matches",
+    modulesTitle: "AI Audit Capabilities",
+    modules: [
+      ["Audit Lead Generation", "Creates review leads from VAT, EWT, matching, and network anomalies."],
+      ["Evidence Summary", "Summarizes transaction evidence, risk reasons, and linked counterparties for reviewers."],
+      ["Case Prioritization", "Ranks audit candidates by revenue exposure, confidence score, and urgency."],
+    ],
+  },
+};
+
+function resolveConfig(scope: TaxScope, pathname: string): TaxCenterConfig {
+  const base = scopeConfig[scope];
+  if (scope !== "bir") return base;
+
+  const routeKey = pathname.split("/").filter(Boolean).at(-1) ?? "tax-intelligence";
+  const override = birModuleConfig[routeKey] ?? birModuleConfig["tax-intelligence"];
+
+  return {
+    ...base,
+    ...override,
+    modules: override.modules ?? base.modules,
+  };
+}
 
 function formatAmount(value: number) {
   if (Math.abs(value) >= 1_000_000_000) return `PHP ${(value / 1_000_000_000).toFixed(1)}B`;
@@ -361,7 +485,8 @@ function GraphPanel({ scope }: { scope: TaxScope }) {
 }
 
 function TaxIntelligenceCenter({ scope }: { scope: TaxScope }) {
-  const cfg = scopeConfig[scope];
+  const location = useLocation();
+  const cfg = resolveConfig(scope, location.pathname);
   const { data, loading, error } = useTaxIntelligenceData(scope);
   const mainSeries = data.series[cfg.mainSeries] ?? [];
   const matchStatus = data.series.match_status ?? data.series.risk_distribution ?? data.series.model_performance ?? [];
