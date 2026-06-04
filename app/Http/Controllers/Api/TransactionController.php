@@ -49,9 +49,9 @@ class TransactionController extends Controller
                 ],
                 'note' => 'All transaction counts, tax totals, records, filters, and latest feed rows are derived from the NUERS MySQL database.',
             ],
-            'metrics' => $this->metrics(),
-            'throughput_series' => $this->throughputSeries(),
-            'live_feed' => $this->liveFeed(),
+            'metrics' => $this->metrics($request),
+            'throughput_series' => $this->throughputSeries($request),
+            'live_feed' => $this->liveFeed($request),
             'transactions' => $transactions,
             'receipts' => $this->receiptsForTransactions($transactions),
             'tax_summary' => $this->taxSummary($request),
@@ -125,6 +125,8 @@ class TransactionController extends Controller
         $region = (string) $request->query('region', 'all');
         $payment = (string) $request->query('payment', 'all');
         $rdo = (string) $request->query('rdo', 'all');
+        $dateFrom = $this->dateBoundary($request->query('date_from'), 'start');
+        $dateTo = $this->dateBoundary($request->query('date_to'), 'end');
         $search = trim((string) $request->query('search', ''));
 
         if ($status !== '' && $status !== 'all') {
@@ -148,6 +150,14 @@ class TransactionController extends Controller
             });
         }
 
+        if ($dateFrom) {
+            $query->where('t.created_at', '>=', $dateFrom);
+        }
+
+        if ($dateTo) {
+            $query->where('t.created_at', '<=', $dateTo);
+        }
+
         if ($search !== '') {
             $like = "%{$search}%";
             $query->where(function (Builder $inner) use ($like) {
@@ -169,6 +179,23 @@ class TransactionController extends Controller
         }
 
         return $query;
+    }
+
+    private function dateBoundary(mixed $value, string $edge): ?Carbon
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            $date = Carbon::parse($value, config('app.timezone'));
+
+            return $edge === 'end' ? $date->endOfDay() : $date->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function transactionSelect(): array
@@ -230,17 +257,18 @@ class TransactionController extends Controller
         ];
     }
 
-    private function metrics(): array
+    private function metrics(Request $request): array
     {
-        $total = DB::table('merchant_transactions')->count();
-        $successful = DB::table('merchant_transactions')->whereIn('status', self::SUCCESS_STATUSES)->count();
-        $pending = DB::table('merchant_transactions')->whereIn('status', self::PENDING_STATUSES)->count();
-        $failed = DB::table('merchant_transactions')->whereIn('status', self::FAILURE_STATUSES)->count();
-        $lastMinute = DB::table('merchant_transactions')
-            ->where('created_at', '>=', now()->subMinute())
+        $query = $this->applyFilters($this->baseTransactionQuery(), $request);
+        $total = (clone $query)->count('t.id');
+        $successful = (clone $query)->whereIn('t.status', self::SUCCESS_STATUSES)->count('t.id');
+        $pending = (clone $query)->whereIn('t.status', self::PENDING_STATUSES)->count('t.id');
+        $failed = (clone $query)->whereIn('t.status', self::FAILURE_STATUSES)->count('t.id');
+        $lastMinute = (clone $query)
+            ->where('t.created_at', '>=', now()->subMinute())
             ->count();
         $receipts = Schema::hasTable('transaction_receipts')
-            ? DB::table('transaction_receipts')->whereIn('status', ['issued', 'verified'])->count()
+            ? (clone $query)->whereIn('r.status', ['issued', 'verified'])->whereNotNull('r.id')->count('r.id')
             : 0;
 
         return [
@@ -257,7 +285,7 @@ class TransactionController extends Controller
             'successful_transactions' => $successful,
             'failed_transactions' => $failed,
             'receipts_issued' => $receipts,
-            'throughput_window' => $this->throughputWindow()['label'],
+            'throughput_window' => $this->throughputWindow($request)['label'],
         ];
     }
 
@@ -274,18 +302,18 @@ class TransactionController extends Controller
         return $latency === null ? null : round((float) $latency, 1);
     }
 
-    private function throughputSeries(): array
+    private function throughputSeries(Request $request): array
     {
-        $window = $this->throughputWindow();
+        $window = $this->throughputWindow($request);
         $start = $window['start'];
-        $rows = DB::table('merchant_transactions')
+        $rows = $this->applyFilters($this->baseTransactionQuery(), $request)
             ->selectRaw("
-                DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:00') as bucket,
+                DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:00') as bucket,
                 COUNT(*) as transactions,
-                SUM(CASE WHEN status IN ('completed', 'paid', 'issued', 'settled', 'verified') THEN 1 ELSE 0 END) as successful,
-                SUM(CASE WHEN status IN ('pending', 'queued', 'processing', 'under_review') THEN 1 ELSE 0 END) as pending
+                SUM(CASE WHEN t.status IN ('completed', 'paid', 'issued', 'settled', 'verified') THEN 1 ELSE 0 END) as successful,
+                SUM(CASE WHEN t.status IN ('pending', 'queued', 'processing', 'under_review') THEN 1 ELSE 0 END) as pending
             ")
-            ->where('created_at', '>=', $start)
+            ->where('t.created_at', '>=', $start)
             ->groupBy('bucket')
             ->get()
             ->keyBy('bucket');
@@ -310,11 +338,12 @@ class TransactionController extends Controller
         return $series;
     }
 
-    private function throughputWindow(): array
+    private function throughputWindow(Request $request): array
     {
         $currentStart = Carbon::now()->subMinutes(29)->startOfMinute();
-        $hasCurrentTraffic = DB::table('merchant_transactions')
-            ->where('created_at', '>=', $currentStart)
+        $base = $this->applyFilters($this->baseTransactionQuery(), $request);
+        $hasCurrentTraffic = (clone $base)
+            ->where('t.created_at', '>=', $currentStart)
             ->exists();
 
         if ($hasCurrentTraffic) {
@@ -324,7 +353,7 @@ class TransactionController extends Controller
             ];
         }
 
-        $latest = DB::table('merchant_transactions')->max('created_at');
+        $latest = (clone $base)->max('t.created_at');
 
         if ($latest) {
             $anchor = Carbon::parse($latest)->startOfMinute();
@@ -341,9 +370,9 @@ class TransactionController extends Controller
         ];
     }
 
-    private function liveFeed(): array
+    private function liveFeed(Request $request): array
     {
-        return $this->baseTransactionQuery()
+        return $this->applyFilters($this->baseTransactionQuery(), $request)
             ->select($this->transactionSelect())
             ->orderByDesc('t.created_at')
             ->limit(20)

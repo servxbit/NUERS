@@ -5,6 +5,7 @@ import {
   Building2, MapPin, CreditCard, Banknote, Smartphone,
   TrendingUp, CheckCircle2, XCircle, X,
   ChevronLeft, ChevronRight, FileText, Globe, BarChart3,
+  CalendarDays, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -519,6 +520,8 @@ export function AdminTransactions() {
   const [regionFilter, setRegionFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [rdoFilter, setRdoFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 15;
 
@@ -554,6 +557,12 @@ export function AdminTransactions() {
 
       if (search.trim()) {
         params.set("search", search.trim());
+      }
+      if (dateFrom) {
+        params.set("date_from", dateFrom);
+      }
+      if (dateTo) {
+        params.set("date_to", dateTo);
       }
 
       const response = await apiFetch(`/api/transactions/overview?${params.toString()}`, {
@@ -596,7 +605,7 @@ export function AdminTransactions() {
       if (silent) setRefreshing(false);
       else setLoading(false);
     }
-  }, [page, paymentFilter, rdoFilter, regionFilter, search, statusFilter]);
+  }, [dateFrom, dateTo, page, paymentFilter, rdoFilter, regionFilter, search, statusFilter]);
 
   useEffect(() => {
     fetchOverview();
@@ -623,6 +632,16 @@ export function AdminTransactions() {
 
   const totalVat = taxSummary?.total_vat ?? filtered.reduce((s, t) => s + Number(t.vat_amount), 0);
   const totalGross = taxSummary?.total_gross ?? filtered.reduce((s, t) => s + Number(t.amount), 0);
+  const activeGlobalFilterCount = [dateFrom, dateTo, regionFilter !== "all" ? regionFilter : "", rdoFilter !== "all" ? rdoFilter : ""].filter(Boolean).length;
+  const activeFilterCount = activeGlobalFilterCount + [search.trim(), statusFilter !== "all" ? statusFilter : "", paymentFilter !== "all" ? paymentFilter : ""].filter(Boolean).length;
+
+  function clearGlobalFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setRegionFilter("all");
+    setRdoFilter("all");
+    setPage(1);
+  }
 
   return (
     <div className="space-y-6">
@@ -635,7 +654,7 @@ export function AdminTransactions() {
           </p>
           {lastUpdated && (
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Last synced {new Date(lastUpdated).toLocaleTimeString("en-PH")} · {liveMetrics.totalTransactions.toLocaleString()} total database transactions
+              Last synced {new Date(lastUpdated).toLocaleTimeString("en-PH")} · {liveMetrics.totalTransactions.toLocaleString()} {activeFilterCount > 0 ? "matching" : "total"} database transactions
             </p>
           )}
         </div>
@@ -651,6 +670,96 @@ export function AdminTransactions() {
           </Button>
         </div>
       </div>
+
+      {/* Global Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-32 items-center gap-2 pb-2 text-sm font-medium text-foreground">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              Filters
+              {activeGlobalFilterCount > 0 && (
+                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                  {activeGlobalFilterCount}
+                </Badge>
+              )}
+            </div>
+            <div className="grid min-w-40 flex-1 gap-1 sm:max-w-48">
+              <span className="text-[10px] font-medium text-muted-foreground">From</span>
+              <div className="relative">
+                <CalendarDays className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-label="From date"
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(event) => {
+                    setDateFrom(event.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 pl-9 text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid min-w-40 flex-1 gap-1 sm:max-w-48">
+              <span className="text-[10px] font-medium text-muted-foreground">To</span>
+              <div className="relative">
+                <CalendarDays className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-label="To date"
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(event) => {
+                    setDateTo(event.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 pl-9 text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid min-w-44 flex-1 gap-1 sm:max-w-48">
+              <span className="text-[10px] font-medium text-muted-foreground">Region</span>
+              <Select value={regionFilter} onValueChange={(value) => { setRegionFilter(value); setPage(1); }}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableFilters.regions.map((region) => (
+                    <SelectItem key={region} value={region}>
+                      {region === "all" ? "All Regions" : region}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-56 flex-1 gap-1">
+              <span className="text-[10px] font-medium text-muted-foreground">RDO</span>
+              <Select value={rdoFilter} onValueChange={(value) => { setRdoFilter(value); setPage(1); }}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="RDO Branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableFilters.rdos.map((rdo) => (
+                    <SelectItem key={rdo.code} value={rdo.code}>
+                      {rdo.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-2"
+              onClick={clearGlobalFilters}
+              disabled={activeGlobalFilterCount === 0}
+            >
+              <X className="h-3.5 w-3.5" /> Clear
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Top KPIs */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -835,18 +944,6 @@ export function AdminTransactions() {
                   <SelectTrigger className="h-9 w-full sm:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     {availableFilters.statuses.map((s) => <SelectItem key={s} value={s} className="capitalize">{s === "all" ? "All Status" : s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(1); }}>
-                  <SelectTrigger className="h-9 w-full sm:w-40"><SelectValue placeholder="Region" /></SelectTrigger>
-                  <SelectContent>
-                    {availableFilters.regions.map((r) => <SelectItem key={r} value={r}>{r === "all" ? "All Regions" : r}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={rdoFilter} onValueChange={(v) => { setRdoFilter(v); setPage(1); }}>
-                  <SelectTrigger className="h-9 w-full sm:w-56"><SelectValue placeholder="RDO Branch" /></SelectTrigger>
-                  <SelectContent>
-                    {availableFilters.rdos.map((rdo) => <SelectItem key={rdo.code} value={rdo.code}>{rdo.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={paymentFilter} onValueChange={(v) => { setPaymentFilter(v); setPage(1); }}>
