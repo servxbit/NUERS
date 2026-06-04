@@ -987,7 +987,6 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
       section: "Review",
       items: [
         { label: "Tax Filings", href: "/bir/tax-filings", icon: FileText },
-        { label: "Fraud Monitoring", href: "/bir/fraud", icon: ShieldAlert },
         { label: "Forecasts", href: "/executive", icon: TrendingUp },
       ],
     },

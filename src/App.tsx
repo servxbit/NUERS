@@ -181,7 +181,6 @@ export default function App() {
         <Route path="compliance" element={<AdminCompliance />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="tax-filings" element={<AdminTaxFilings />} />
-        <Route path="fraud" element={<AdminRiskDetection />} />
         <Route path="tax-intelligence" element={<BirTaxIntelligenceDashboard />} />
         <Route path="vat-reconciliation" element={<BirTaxIntelligenceDashboard />} />
         <Route path="invoice-matching" element={<BirTaxIntelligenceDashboard />} />
