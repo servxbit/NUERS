@@ -51,7 +51,7 @@ class TransactionController extends Controller
             ],
             'metrics' => $this->metrics($request),
             'throughput_series' => $this->throughputSeries($request),
-            'live_feed' => $this->liveFeed($request),
+            'live_feed' => $this->liveFeed($request, $totalFiltered),
             'transactions' => $transactions,
             'receipts' => $this->receiptsForTransactions($transactions),
             'tax_summary' => $this->taxSummary($request),
@@ -370,12 +370,17 @@ class TransactionController extends Controller
         ];
     }
 
-    private function liveFeed(Request $request): array
+    private function liveFeed(Request $request, int $totalFiltered): array
     {
+        $rdo = (string) $request->query('rdo', 'all');
+        $limit = $rdo === 'all'
+            ? min(500, max(20, $totalFiltered))
+            : 20;
+
         return $this->applyFilters($this->baseTransactionQuery(), $request)
             ->select($this->transactionSelect())
             ->orderByDesc('t.created_at')
-            ->limit(20)
+            ->limit($limit)
             ->get()
             ->map(fn ($row) => [
                 'id' => (string) ($row->transaction_ref ?: $row->id),
@@ -460,10 +465,93 @@ class TransactionController extends Controller
             'zero_rated_sales' => (float) $row->zero_rated_sales,
             'vat_amount' => (float) $row->vat_amount,
             'total_due' => (float) $row->total_due,
-            'items' => $items,
+            'items' => $this->receiptItems($items, $row),
             'status' => (string) ($row->status ?? 'issued'),
             'issued_at' => $row->issued_at ?: $row->created_at,
         ];
+    }
+
+    private function receiptItems(array $items, object $row): array
+    {
+        if ($items === []) {
+            $items = [[
+                'description' => (string) ($row->receipt_type ?? 'Transaction item'),
+            ]];
+        }
+
+        $singleItem = count($items) === 1;
+
+        return collect($items)
+            ->filter(fn ($item) => is_array($item))
+            ->values()
+            ->map(function (array $item) use ($row, $singleItem) {
+                $quantity = $this->numberFrom($item['quantity'] ?? $item['qty'] ?? 1, 1.0);
+                $unitPrice = $this->numberFrom($item['unit_price'] ?? $item['price'] ?? null, null);
+                $amount = $this->numberFrom(
+                    $item['amount']
+                        ?? $item['total']
+                        ?? $item['line_total']
+                        ?? $item['total_amount']
+                        ?? $item['gross_amount']
+                        ?? null,
+                    null
+                );
+                $receiptTotal = $this->numberFrom($row->total_due ?? $row->gross_amount ?? null, 0.0);
+
+                if ($amount === null && $unitPrice !== null) {
+                    $amount = $quantity * $unitPrice;
+                }
+
+                if (($amount === null || ($singleItem && $amount <= 0 && $receiptTotal > 0)) && $singleItem) {
+                    $amount = $receiptTotal;
+                }
+
+                $vat = $this->numberFrom($item['vat'] ?? $item['vat_amount'] ?? $item['tax'] ?? $item['tax_amount'] ?? null, null);
+                $receiptVat = $this->numberFrom($row->vat_amount ?? null, 0.0);
+
+                if (($vat === null || ($singleItem && $vat <= 0 && $receiptVat > 0)) && $singleItem) {
+                    $vat = $receiptVat;
+                }
+
+                return array_merge($item, [
+                    'description' => (string) ($item['description'] ?? $item['name'] ?? 'Transaction item'),
+                    'quantity' => $quantity,
+                    'qty' => $quantity,
+                    'unit_price' => round($unitPrice ?? $amount ?? 0, 2),
+                    'vat' => round($vat ?? 0, 2),
+                    'amount' => round($amount ?? 0, 2),
+                ]);
+            })
+            ->all();
+    }
+
+    private function numberFrom(mixed $value, ?float $fallback): ?float
+    {
+        if ($value === null || $value === '') {
+            return $fallback;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        if (! is_string($value)) {
+            return $fallback;
+        }
+
+        $trimmed = trim($value);
+
+        if ($trimmed === '' || strtolower($trimmed) === 'nan') {
+            return $fallback;
+        }
+
+        $normalized = preg_replace('/[^\d.\-]/', '', $trimmed);
+
+        if ($normalized === null || $normalized === '' || $normalized === '-' || $normalized === '.') {
+            return $fallback;
+        }
+
+        return is_numeric($normalized) ? (float) $normalized : $fallback;
     }
 
     private function taxSummary(Request $request): array

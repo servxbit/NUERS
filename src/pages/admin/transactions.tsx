@@ -78,7 +78,23 @@ type Receipt = {
   zero_rated_sales: number;
   vat_amount: number;
   total_due: number;
-  items: Array<{ description: string; qty: number; unit_price: number; vat: number; amount: number }>;
+  items: Array<{
+    description?: string;
+    name?: string;
+    qty?: number | string;
+    quantity?: number | string;
+    unit_price?: number | string;
+    price?: number | string;
+    vat?: number | string;
+    vat_amount?: number | string;
+    tax?: number | string;
+    tax_amount?: number | string;
+    amount?: number | string;
+    total?: number | string;
+    line_total?: number | string;
+    total_amount?: number | string;
+    gross_amount?: number | string;
+  }>;
   status: string;
   issued_at: string;
 };
@@ -202,8 +218,88 @@ const statusBadge: Record<string, { variant: "default" | "secondary" | "destruct
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 
+function parseMoneyValue(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || trimmed.toLowerCase() === "nan") {
+    return null;
+  }
+
+  const normalized = trimmed.replace(/[^\d.-]/g, "");
+  const amount = Number(normalized);
+
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function moneyValue(value: unknown, fallback = 0): number {
+  return parseMoneyValue(value) ?? fallback;
+}
+
+function peso(value: unknown, fallback = 0): string {
+  return `₱${moneyValue(value, fallback).toFixed(2)}`;
+}
+
+function receiptTypeLabel(type: string | null | undefined): string {
+  return (type || "Transaction item")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+type ReceiptLine = {
+  description: string;
+  vat: number;
+  amount: number;
+};
+
+function buildReceiptLines(receipt: Receipt): ReceiptLine[] {
+  const rawItems = receipt.items.length > 0
+    ? receipt.items
+    : [{ description: receiptTypeLabel(receipt.receipt_type) }];
+  const singleItem = rawItems.length === 1;
+  const receiptTotal = moneyValue(receipt.total_due);
+  const receiptVat = moneyValue(receipt.vat_amount);
+
+  return rawItems.map((item) => {
+    const quantity = moneyValue(item.quantity ?? item.qty, 1);
+    const unitPrice = parseMoneyValue(item.unit_price ?? item.price);
+    const explicitAmount = parseMoneyValue(
+      item.amount ?? item.total ?? item.line_total ?? item.total_amount ?? item.gross_amount,
+    );
+    const computedAmount = unitPrice === null ? null : quantity * unitPrice;
+    let amount = explicitAmount ?? computedAmount ?? (singleItem ? receiptTotal : 0);
+
+    if (singleItem && amount <= 0 && receiptTotal > 0) {
+      amount = receiptTotal;
+    }
+
+    const explicitVat = parseMoneyValue(item.vat ?? item.vat_amount ?? item.tax ?? item.tax_amount);
+    let vat = explicitVat ?? (singleItem ? receiptVat : 0);
+
+    if (singleItem && vat <= 0 && receiptVat > 0) {
+      vat = receiptVat;
+    }
+
+    return {
+      description: item.description?.trim() || item.name?.trim() || receiptTypeLabel(receipt.receipt_type),
+      vat,
+      amount,
+    };
+  });
+}
+
 function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: () => void }) {
   if (!receipt) return null;
+
+  const currentReceipt = receipt;
+  const receiptLines = buildReceiptLines(currentReceipt);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -217,28 +313,28 @@ function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: 
 
         {/* BIR Receipt Header */}
         <div className="rounded-lg border bg-muted/30 p-4 text-center space-y-0.5">
-          <p className="text-sm font-bold text-foreground">{receipt.merchant_name}</p>
-          <p className="text-xs text-muted-foreground">{receipt.merchant_address}</p>
-          <p className="text-xs text-muted-foreground">TIN: {receipt.merchant_tin}</p>
-          <p className="text-xs text-muted-foreground">RDO: {receipt.rdo_branch ?? "Unassigned RDO"}</p>
-          <p className="text-xs text-muted-foreground">VAT Reg: {receipt.merchant_vat_reg}</p>
-          <p className="text-xs text-muted-foreground">BIR Accreditation: {receipt.bir_accreditation}</p>
+          <p className="text-sm font-bold text-foreground">{currentReceipt.merchant_name}</p>
+          <p className="text-xs text-muted-foreground">{currentReceipt.merchant_address}</p>
+          <p className="text-xs text-muted-foreground">TIN: {currentReceipt.merchant_tin}</p>
+          <p className="text-xs text-muted-foreground">RDO: {currentReceipt.rdo_branch ?? "Unassigned RDO"}</p>
+          <p className="text-xs text-muted-foreground">VAT Reg: {currentReceipt.merchant_vat_reg}</p>
+          <p className="text-xs text-muted-foreground">BIR Accreditation: {currentReceipt.bir_accreditation}</p>
         </div>
 
         <div className="space-y-3">
           <div className="flex justify-between text-xs">
             <span className="font-semibold text-foreground">OFFICIAL RECEIPT</span>
-            <span className="font-mono text-foreground">{receipt.receipt_number}</span>
+            <span className="font-mono text-foreground">{currentReceipt.receipt_number}</span>
           </div>
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Series: {receipt.series_number}</span>
-            <span>Date: {new Date(receipt.issued_at).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}</span>
+            <span>Series: {currentReceipt.series_number}</span>
+            <span>Date: {new Date(currentReceipt.issued_at).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}</span>
           </div>
 
-          {(receipt.buyer_name || receipt.buyer_tin) && (
+          {(currentReceipt.buyer_name || currentReceipt.buyer_tin) && (
             <div className="rounded border p-2.5 text-xs space-y-0.5">
-              {receipt.buyer_name && <div className="flex gap-2"><span className="text-muted-foreground w-16">Sold to:</span><span className="font-medium">{receipt.buyer_name}</span></div>}
-              {receipt.buyer_tin && <div className="flex gap-2"><span className="text-muted-foreground w-16">TIN:</span><span className="font-mono">{receipt.buyer_tin}</span></div>}
+              {currentReceipt.buyer_name && <div className="flex gap-2"><span className="text-muted-foreground w-16">Sold to:</span><span className="font-medium">{currentReceipt.buyer_name}</span></div>}
+              {currentReceipt.buyer_tin && <div className="flex gap-2"><span className="text-muted-foreground w-16">TIN:</span><span className="font-mono">{currentReceipt.buyer_tin}</span></div>}
             </div>
           )}
 
@@ -251,11 +347,11 @@ function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: 
               <span className="text-right">VAT</span>
               <span className="text-right">Amount</span>
             </div>
-            {receipt.items.map((item, i) => (
+            {receiptLines.map((item, i) => (
               <div key={i} className="grid grid-cols-4 text-xs">
                 <span className="col-span-2 text-foreground">{item.description}</span>
-                <span className="text-right text-muted-foreground">₱{Number(item.vat).toFixed(2)}</span>
-                <span className="text-right font-medium text-foreground">₱{Number(item.amount).toFixed(2)}</span>
+                <span className="text-right text-muted-foreground">{peso(item.vat)}</span>
+                <span className="text-right font-medium text-foreground">{peso(item.amount)}</span>
               </div>
             ))}
           </div>
@@ -266,40 +362,40 @@ function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: 
           <div className="space-y-1 text-xs">
             <div className="flex justify-between text-muted-foreground">
               <span>Vatable Sales</span>
-              <span className="font-mono">₱{Number(receipt.vatable_sales).toFixed(2)}</span>
+              <span className="font-mono">{peso(currentReceipt.vatable_sales)}</span>
             </div>
-            {receipt.vat_exempt_sales > 0 && (
+            {moneyValue(currentReceipt.vat_exempt_sales) > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <span>VAT-Exempt Sales</span>
-                <span className="font-mono">₱{Number(receipt.vat_exempt_sales).toFixed(2)}</span>
+                <span className="font-mono">{peso(currentReceipt.vat_exempt_sales)}</span>
               </div>
             )}
-            {receipt.zero_rated_sales > 0 && (
+            {moneyValue(currentReceipt.zero_rated_sales) > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <span>Zero-Rated Sales</span>
-                <span className="font-mono">₱{Number(receipt.zero_rated_sales).toFixed(2)}</span>
+                <span className="font-mono">{peso(currentReceipt.zero_rated_sales)}</span>
               </div>
             )}
-            {receipt.discount_amount > 0 && (
+            {moneyValue(currentReceipt.discount_amount) > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <span>Discount</span>
-                <span className="font-mono text-destructive">-₱{Number(receipt.discount_amount).toFixed(2)}</span>
+                <span className="font-mono text-destructive">-{peso(currentReceipt.discount_amount)}</span>
               </div>
             )}
             <div className="flex justify-between text-muted-foreground">
               <span>12% VAT</span>
-              <span className="font-mono text-success">₱{Number(receipt.vat_amount).toFixed(2)}</span>
+              <span className="font-mono text-success">{peso(currentReceipt.vat_amount)}</span>
             </div>
             <Separator />
             <div className="flex justify-between text-sm font-bold text-foreground">
               <span>TOTAL AMOUNT DUE</span>
-              <span className="font-mono">₱{Number(receipt.total_due).toFixed(2)}</span>
+              <span className="font-mono">{peso(currentReceipt.total_due)}</span>
             </div>
           </div>
 
           <div className="text-center">
-            <Badge variant={receipt.status === "issued" ? "default" : "destructive"} className="text-[10px]">
-              {receipt.status.toUpperCase()}
+            <Badge variant={currentReceipt.status === "issued" ? "default" : "destructive"} className="text-[10px]">
+              {currentReceipt.status.toUpperCase()}
             </Badge>
           </div>
 
