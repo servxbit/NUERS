@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Activity, Zap, Clock, Server, Search, Download, Eye,
   Receipt, RefreshCw,
@@ -491,10 +491,12 @@ function TaxBreakdownPanel({ transactions, taxSummary }: { transactions: Transac
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function AdminTransactions() {
+  const AUTO_REFRESH_MS = 5000;
   const [activeTab, setActiveTab] = useState("live");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
   const [taxSummary, setTaxSummary] = useState<TaxSummary | null>(null);
   const [throughputData, setThroughputData] = useState<ThroughputPoint[]>([]);
@@ -530,9 +532,15 @@ export function AdminTransactions() {
     totalTransactions: 0,
     latencySource: "Loading database telemetry...",
   });
+  const refreshInFlight = useRef(false);
 
   const fetchOverview = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    if (refreshInFlight.current) return;
+
+    refreshInFlight.current = true;
+
+    if (silent) setRefreshing(true);
+    else setLoading(true);
 
     try {
       const params = new URLSearchParams({
@@ -584,7 +592,9 @@ export function AdminTransactions() {
     } catch (error) {
       toast.error("Failed to load database transactions.");
     } finally {
-      if (!silent) setLoading(false);
+      refreshInFlight.current = false;
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
   }, [page, paymentFilter, rdoFilter, regionFilter, search, statusFilter]);
 
@@ -595,10 +605,10 @@ export function AdminTransactions() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       fetchOverview(true);
-    }, 10000);
+    }, AUTO_REFRESH_MS);
 
     return () => window.clearInterval(interval);
-  }, [fetchOverview]);
+  }, [AUTO_REFRESH_MS, fetchOverview]);
 
   const filtered = transactions;
   const totalPages = pagination.total_pages;
@@ -633,8 +643,11 @@ export function AdminTransactions() {
           <Badge variant="secondary" className="gap-1.5 animate-pulse">
             <Activity className="h-3 w-3 text-success" /> Database Live
           </Badge>
-          <Button variant="outline" size="sm" className="gap-2 h-8" onClick={() => fetchOverview()}>
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          <Badge variant="outline" className="gap-1.5">
+            <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} /> Auto-sync {Math.round(AUTO_REFRESH_MS / 1000)}s
+          </Badge>
+          <Button variant="outline" size="sm" className="gap-2 h-8" onClick={() => fetchOverview()} disabled={loading || refreshing}>
+            <RefreshCw className={cn("h-3.5 w-3.5", (loading || refreshing) && "animate-spin")} /> Refresh
           </Button>
         </div>
       </div>
