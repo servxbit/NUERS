@@ -162,6 +162,7 @@ type TransactionOverviewPayload = {
 const DEFAULT_PAYMENT_METHODS = ["all", "cash", "card", "gcash", "maya", "bank_transfer", "check"];
 const DEFAULT_REGIONS = ["all", "NCR"];
 const DEFAULT_STATUSES = ["all", "completed", "pending", "voided", "refunded"];
+const ALL_RDO_FILTER = { code: "all", name: "All RDO Branches", label: "All RDO Branches" };
 
 const paymentIcon: Record<string, React.ElementType> = {
   cash: Banknote,
@@ -507,7 +508,7 @@ export function AdminTransactions() {
     payment_methods: DEFAULT_PAYMENT_METHODS,
     regions: DEFAULT_REGIONS,
     statuses: DEFAULT_STATUSES,
-    rdos: [{ code: "all", name: "All RDO Branches", label: "All RDO Branches" }],
+    rdos: [ALL_RDO_FILTER],
   });
   const [pagination, setPagination] = useState({
     total: 0,
@@ -584,7 +585,7 @@ export function AdminTransactions() {
         payment_methods: payload.filters?.payment_methods?.length ? payload.filters.payment_methods : DEFAULT_PAYMENT_METHODS,
         regions: payload.filters?.regions?.length ? payload.filters.regions : DEFAULT_REGIONS,
         statuses: payload.filters?.statuses?.length ? payload.filters.statuses : DEFAULT_STATUSES,
-        rdos: payload.filters?.rdos?.length ? payload.filters.rdos : [{ code: "all", name: "All RDO Branches", label: "All RDO Branches" }],
+        rdos: payload.filters?.rdos?.length ? payload.filters.rdos : [ALL_RDO_FILTER],
       });
       setPagination({
         total: payload.pagination?.total ?? 0,
@@ -640,6 +641,13 @@ export function AdminTransactions() {
     setDateTo("");
     setRegionFilter("all");
     setRdoFilter("all");
+    setPage(1);
+  }
+
+  function handleRegionFilterChange(value: string) {
+    setRegionFilter(value);
+    setRdoFilter("all");
+    setAvailableFilters((current) => ({ ...current, rdos: [ALL_RDO_FILTER] }));
     setPage(1);
   }
 
@@ -720,7 +728,7 @@ export function AdminTransactions() {
             </div>
             <div className="grid min-w-44 flex-1 gap-1 sm:max-w-48">
               <span className="text-[10px] font-medium text-muted-foreground">Region</span>
-              <Select value={regionFilter} onValueChange={(value) => { setRegionFilter(value); setPage(1); }}>
+              <Select value={regionFilter} onValueChange={handleRegionFilterChange}>
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Region" />
                 </SelectTrigger>

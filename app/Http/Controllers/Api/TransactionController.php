@@ -59,7 +59,7 @@ class TransactionController extends Controller
                 'payment_methods' => $this->options('payment_method', ['cash', 'card', 'gcash', 'maya', 'bank_transfer', 'check']),
                 'regions' => $this->options('region', ['NCR']),
                 'statuses' => $this->options('status', ['completed', 'pending', 'voided', 'refunded']),
-                'rdos' => $this->rdoOptions(),
+                'rdos' => $this->rdoOptions($request),
             ],
             'pagination' => [
                 'page' => $page,
@@ -559,13 +559,20 @@ class TransactionController extends Controller
         return array_values(array_unique(['all', ...($values ?: $fallback)]));
     }
 
-    private function rdoOptions(): array
+    private function rdoOptions(Request $request): array
     {
-        $rows = $this->baseTransactionQuery()
+        $region = (string) $request->query('region', 'all');
+        $query = $this->baseTransactionQuery()
             ->selectRaw("
                 COALESCE(NULLIF(t.rdo_code, ''), NULLIF(r.rdo_code, ''), NULLIF(m.rdo_code, '')) as code,
                 COALESCE(NULLIF(t.rdo_name, ''), NULLIF(r.rdo_name, ''), NULLIF(m.rdo_name, '')) as name
-            ")
+            ");
+
+        if ($region !== '' && $region !== 'all') {
+            $query->whereRaw("COALESCE(NULLIF(t.region, ''), NULLIF(m.region, ''), 'Unclassified') = ?", [$region]);
+        }
+
+        $rows = $query
             ->where(function (Builder $query) {
                 $query
                     ->whereNotNull('t.rdo_code')
