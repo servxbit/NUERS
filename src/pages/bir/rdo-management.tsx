@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,9 +178,9 @@ export function BirRdoManagement() {
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{office.region} · {office.city ?? "Coverage pending"}</p>
                   </div>
-                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                    <Link to={`/rdo?code=${encodeURIComponent(office.rdo_code)}`}>Open Portal</Link>
-                  </Button>
+                  <Badge variant="outline" className="h-8 px-3 text-xs">
+                    Registered RDO
+                  </Badge>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-md bg-secondary/40 p-3">

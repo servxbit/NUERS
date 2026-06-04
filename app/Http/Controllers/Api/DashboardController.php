@@ -29,6 +29,12 @@ class DashboardController extends Controller
             return response()->json($this->superAdminPayload());
         }
 
+        if ($portal === 'bir') {
+            return response()
+                ->json($this->birPayload($request))
+                ->header('Cache-Control', 'private, max-age=15');
+        }
+
         if ($portal === 'merchant') {
             return response()
                 ->json($this->businessAccountPayload($request))
@@ -215,6 +221,448 @@ class DashboardController extends Controller
         return $rows
             ->unique(fn ($row) => $row['title'].'|'.($row['metadata']['receipt_id'] ?? $row['metadata']['transaction_id'] ?? ''))
             ->take(6)
+            ->values()
+            ->all();
+    }
+
+    private function birPayload(Request $request): array
+    {
+        $cacheKey = 'nuers.dashboard.bir';
+
+        try {
+            if ($request->has('refresh')) {
+                Cache::store('file')->forget($cacheKey);
+            }
+
+            return Cache::store('file')->remember($cacheKey, now()->addSeconds(20), fn () => $this->birFreshPayload());
+        } catch (\Throwable) {
+            return $this->birFreshPayload();
+        }
+    }
+
+    private function birFreshPayload(): array
+    {
+        return [
+            'portal' => 'bir',
+            'kpis' => $this->birKpis(),
+            'series' => [
+                'collection_trend' => $this->birCollectionTrend(),
+                'revenue_by_region' => $this->birRevenueByRegion(),
+            ],
+            'lists' => [
+                'merchant_compliance' => $this->merchantComplianceRows(),
+                'audit_queue' => $this->birAuditQueue(),
+                'reports' => $this->birReportRows(),
+                'receipt_verification' => $this->birReceiptVerificationRows(),
+                'forecast_cards' => $this->birForecastCards(),
+            ],
+        ];
+    }
+
+    private function birKpis(): array
+    {
+        $today = now()->startOfDay();
+        $month = now()->startOfMonth();
+
+        $totalTransactions = $this->count('merchant_transactions');
+        $todayTransactions = $this->tableExists('merchant_transactions')
+            ? DB::table('merchant_transactions')->where('created_at', '>=', $today)->count()
+            : 0;
+
+        $receiptsIssued = $this->tableExists('transaction_receipts')
+            ? DB::table('transaction_receipts')->whereIn('status', ['issued', 'verified'])->count()
+            : 0;
+        $receiptsToday = $this->tableExists('transaction_receipts')
+            ? DB::table('transaction_receipts')
+                ->whereRaw('COALESCE(issued_at, created_at) >= ?', [$today->toDateTimeString()])
+                ->count()
+            : 0;
+
+        $monthRevenue = $this->tableExists('merchant_transactions')
+            ? (float) DB::table('merchant_transactions')->where('created_at', '>=', $month)->sum('amount')
+            : 0.0;
+        if ($monthRevenue <= 0 && $this->tableExists('transaction_receipts')) {
+            $monthRevenue = (float) DB::table('transaction_receipts')
+                ->whereRaw('COALESCE(issued_at, created_at) >= ?', [$month->toDateTimeString()])
+                ->sum('total_due');
+        }
+
+        $monthVat = $this->tableExists('merchant_transactions')
+            ? (float) DB::table('merchant_transactions')->where('created_at', '>=', $month)->sum('vat_amount')
+            : 0.0;
+        if ($monthVat <= 0 && $this->tableExists('transaction_receipts')) {
+            $monthVat = (float) DB::table('transaction_receipts')
+                ->whereRaw('COALESCE(issued_at, created_at) >= ?', [$month->toDateTimeString()])
+                ->sum('vat_amount');
+        }
+
+        $activeMerchants = $this->tableExists('merchants')
+            ? DB::table('merchants')->where('status', 'active')->count()
+            : 0;
+        $pendingMerchants = $this->tableExists('merchants')
+            ? DB::table('merchants')->whereIn('status', ['pending', 'under_review'])->count()
+            : 0;
+
+        $activeRdos = $this->tableExists('rdo_offices')
+            ? DB::table('rdo_offices')->where('status', 'active')->count()
+            : 0;
+        $birAccounts = $this->count('bir_accounts');
+
+        return [
+            $this->kpi('total_transactions', 'Total Transactions', $this->compactNumber($totalTransactions), "{$this->compactNumber($todayTransactions)} posted today", 'Activity', 'border-l-primary'),
+            $this->kpi('eor_issued', 'EOR Issued', $this->compactNumber($receiptsIssued), "{$this->compactNumber($receiptsToday)} issued today", 'Receipt', 'border-l-chart-2'),
+            $this->kpi('revenue_this_month', 'Revenue This Month', $this->money($monthRevenue), 'Live merchant transaction ledger', 'TrendingUp', 'border-l-success'),
+            $this->kpi('vat_this_month', 'VAT This Month', $this->money($monthVat), 'Recorded VAT on posted activity', 'ShieldCheck', 'border-l-chart-3'),
+            $this->kpi('active_merchants', 'Active Merchants', $this->compactNumber($activeMerchants), "{$this->compactNumber($pendingMerchants)} pending or under review", 'Building2', 'border-l-chart-4'),
+            $this->kpi('active_rdos', 'Active RDO Offices', $this->compactNumber($activeRdos), "{$this->compactNumber($birAccounts)} BIR regulator accounts", 'Landmark', 'border-l-warning'),
+        ];
+    }
+
+    private function birCollectionTrend(): array
+    {
+        $start = now()->copy()->subMonths(5)->startOfMonth();
+        $trend = [];
+
+        $transactionRows = collect();
+        if ($this->tableExists('merchant_transactions')) {
+            [$yearExpression, $monthExpression] = $this->monthPartExpressions('created_at');
+            $transactionRows = DB::table('merchant_transactions')
+                ->selectRaw("{$yearExpression} as year_value, {$monthExpression} as month_value, SUM(amount) as revenue_total, SUM(vat_amount) as vat_total")
+                ->where('created_at', '>=', $start)
+                ->groupByRaw("{$yearExpression}, {$monthExpression}")
+                ->get()
+                ->keyBy(fn ($row) => "{$row->year_value}-{$row->month_value}");
+        }
+
+        $receiptRows = collect();
+        if ($this->tableExists('transaction_receipts')) {
+            [$receiptYearExpression, $receiptMonthExpression] = $this->monthPartExpressions('COALESCE(issued_at, created_at)');
+            $receiptRows = DB::table('transaction_receipts')
+                ->selectRaw("{$receiptYearExpression} as year_value, {$receiptMonthExpression} as month_value, COUNT(*) as receipt_total")
+                ->whereRaw('COALESCE(issued_at, created_at) >= ?', [$start->toDateTimeString()])
+                ->groupByRaw("{$receiptYearExpression}, {$receiptMonthExpression}")
+                ->get()
+                ->keyBy(fn ($row) => "{$row->year_value}-{$row->month_value}");
+        }
+
+        for ($i = 5; $i >= 0; $i--) {
+            $date = now()->copy()->subMonths($i)->startOfMonth();
+            $key = "{$date->year}-{$date->month}";
+
+            $trend[] = [
+                'label' => $date->format('M'),
+                'revenue' => round(((float) ($transactionRows[$key]?->revenue_total ?? 0)) / 1000, 2),
+                'tax' => round(((float) ($transactionRows[$key]?->vat_total ?? 0)) / 1000, 2),
+                'receipts' => (int) ($receiptRows[$key]?->receipt_total ?? 0),
+            ];
+        }
+
+        return $trend;
+    }
+
+    private function birRevenueByRegion(): array
+    {
+        if ($this->tableExists('merchant_transactions')) {
+            $rows = DB::table('merchant_transactions as transactions')
+                ->leftJoin('merchants as merchants', 'transactions.merchant_id', '=', 'merchants.id')
+                ->selectRaw("COALESCE(NULLIF(transactions.region, ''), NULLIF(merchants.region, ''), 'Unclassified') as region_name")
+                ->selectRaw('SUM(transactions.amount) as revenue_total')
+                ->selectRaw('SUM(transactions.vat_amount) as vat_total')
+                ->selectRaw('AVG(COALESCE(merchants.compliance_score, 0)) as compliance_score')
+                ->groupBy('region_name')
+                ->orderByDesc('revenue_total')
+                ->limit(6)
+                ->get();
+
+            if ($rows->isNotEmpty()) {
+                return $rows->map(fn ($row) => [
+                    'label' => (string) $row->region_name,
+                    'revenue' => round(((float) ($row->revenue_total ?? 0)) / 1000, 2),
+                    'tax' => round(((float) ($row->vat_total ?? 0)) / 1000, 2),
+                    'compliance' => round((float) ($row->compliance_score ?? 0), 1),
+                ])->values()->all();
+            }
+        }
+
+        if (! $this->tableExists('merchants')) {
+            return [];
+        }
+
+        return DB::table('merchants')
+            ->selectRaw("COALESCE(NULLIF(region, ''), 'Unclassified') as region_name")
+            ->selectRaw('AVG(compliance_score) as compliance_score')
+            ->groupBy('region_name')
+            ->orderByDesc('compliance_score')
+            ->limit(6)
+            ->get()
+            ->map(fn ($row) => [
+                'label' => (string) $row->region_name,
+                'revenue' => 0,
+                'tax' => 0,
+                'compliance' => round((float) ($row->compliance_score ?? 0), 1),
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function birReceiptVerificationRows(): array
+    {
+        if (! $this->tableExists('receipt_verifications')) {
+            return [];
+        }
+
+        $row = DB::table('receipt_verifications as verifications')
+            ->leftJoin('transaction_receipts as receipts', 'verifications.receipt_id', '=', 'receipts.id')
+            ->select(
+                'verifications.receipt_number',
+                'verifications.verification_method',
+                'verifications.status',
+                'verifications.signature_valid',
+                'verifications.verified_at',
+                'verifications.created_at',
+                'receipts.merchant_name'
+            )
+            ->orderByDesc(DB::raw('COALESCE(verifications.verified_at, verifications.created_at)'))
+            ->first();
+
+        if (! $row) {
+            return [];
+        }
+
+        return [
+            $this->item(
+                'Latest receipt verification',
+                trim(implode(' · ', array_filter([
+                    $row->merchant_name ?: null,
+                    $this->headline((string) $row->verification_method),
+                ]))) ?: 'Receipt verification record',
+                ! $row->signature_valid ? 'Signature Invalid' : $this->headline((string) $row->status),
+                ! $row->signature_valid ? 'Flagged' : 'Verified',
+                null,
+                null,
+                [
+                    'receipt_number' => $row->receipt_number,
+                    'merchant' => $row->merchant_name ?: 'Unknown merchant',
+                    'method' => $this->headline((string) $row->verification_method),
+                    'verified_at' => $row->verified_at ?: $row->created_at,
+                    'signature_valid' => (bool) $row->signature_valid,
+                ],
+            ),
+        ];
+    }
+
+    private function birForecastCards(): array
+    {
+        $startOfMonth = now()->copy()->startOfMonth();
+        $startOfPreviousMonth = now()->copy()->subMonthNoOverflow()->startOfMonth();
+        $endOfPreviousMonth = now()->copy()->subMonthNoOverflow()->endOfMonth();
+        $daysElapsed = max(1, now()->day);
+        $daysInMonth = now()->daysInMonth;
+
+        $monthRevenue = $this->tableExists('merchant_transactions')
+            ? (float) DB::table('merchant_transactions')->where('created_at', '>=', $startOfMonth)->sum('amount')
+            : 0.0;
+        $monthVat = $this->tableExists('merchant_transactions')
+            ? (float) DB::table('merchant_transactions')->where('created_at', '>=', $startOfMonth)->sum('vat_amount')
+            : 0.0;
+        $previousMonthRevenue = $this->tableExists('merchant_transactions')
+            ? (float) DB::table('merchant_transactions')
+                ->whereBetween('created_at', [$startOfPreviousMonth->toDateTimeString(), $endOfPreviousMonth->toDateTimeString()])
+                ->sum('amount')
+            : 0.0;
+
+        $projectedMonthEnd = $monthRevenue > 0 ? ($monthRevenue / $daysElapsed) * $daysInMonth : 0.0;
+        $projectedMonthVat = $monthVat > 0 ? ($monthVat / $daysElapsed) * $daysInMonth : 0.0;
+        $variance = $previousMonthRevenue > 0 ? (($projectedMonthEnd - $previousMonthRevenue) / $previousMonthRevenue) * 100 : null;
+
+        return [
+            $this->item('Month-to-date revenue', 'Live transactions posted this month', 'Actual', null, $monthRevenue, null, [
+                'display' => $this->money($monthRevenue),
+            ]),
+            $this->item('Projected month end', 'Current daily pace extrapolated to month end', 'Projected', null, $projectedMonthEnd, null, [
+                'display' => $this->money($projectedMonthEnd),
+            ]),
+            $this->item('Projected month VAT', 'Derived from the same live posting pace', 'Forecast', null, $projectedMonthVat, null, [
+                'display' => $this->money($projectedMonthVat),
+                'trend' => $variance === null ? 'No prior month baseline' : sprintf('%s%s vs last month', $variance >= 0 ? '+' : '', number_format($variance, 1)).'%',
+            ]),
+        ];
+    }
+
+    private function birAuditQueue(): array
+    {
+        $queue = collect();
+
+        if ($this->tableExists('fraud_signals')) {
+            DB::table('fraud_signals')
+                ->leftJoin('merchants', 'fraud_signals.merchant_id', '=', 'merchants.id')
+                ->select(
+                    'fraud_signals.id',
+                    'fraud_signals.signal_type',
+                    'fraud_signals.severity',
+                    'fraud_signals.risk_score',
+                    'fraud_signals.status',
+                    'fraud_signals.detected_at',
+                    'merchants.business_name',
+                    'merchants.region'
+                )
+                ->whereIn('fraud_signals.status', ['open', 'under_review'])
+                ->orderByDesc('fraud_signals.risk_score')
+                ->limit(4)
+                ->get()
+                ->each(function ($row) use ($queue): void {
+                    $queue->push([
+                        'priority' => match (strtolower((string) $row->severity)) {
+                            'critical' => 400,
+                            'high' => 300,
+                            'medium' => 200,
+                            default => 100,
+                        },
+                        'item' => $this->item(
+                            strtoupper(substr((string) $row->id, 0, 8)),
+                            trim(implode(' · ', array_filter([
+                                $this->headline((string) $row->signal_type),
+                                $row->business_name ?: 'Unassigned merchant',
+                            ]))),
+                            $this->riskLabel((string) $row->severity),
+                            null,
+                            null,
+                            null,
+                            [
+                                'scope' => trim(implode(' · ', array_filter([
+                                    $this->headline((string) $row->status),
+                                    $row->region ?: 'National',
+                                    $row->detected_at ? Carbon::parse($row->detected_at)->diffForHumans() : null,
+                                ]))),
+                            ],
+                        ),
+                    ]);
+                });
+        }
+
+        if ($this->tableExists('eis_transmissions')) {
+            DB::table('eis_transmissions')
+                ->leftJoin('eis_integrations', 'eis_transmissions.integration_id', '=', 'eis_integrations.id')
+                ->select(
+                    'eis_transmissions.id',
+                    'eis_transmissions.status',
+                    'eis_transmissions.transmission_type',
+                    'eis_transmissions.attempt_number',
+                    'eis_transmissions.created_at',
+                    'eis_transmissions.response_message',
+                    'eis_integrations.merchant_name'
+                )
+                ->whereNotIn('eis_transmissions.status', ['acknowledged', 'accepted', 'completed'])
+                ->orderByDesc('eis_transmissions.created_at')
+                ->limit(3)
+                ->get()
+                ->each(function ($row) use ($queue): void {
+                    $status = strtolower((string) $row->status);
+                    $queue->push([
+                        'priority' => in_array($status, ['failed', 'error', 'rejected'], true) ? 250 : 150,
+                        'item' => $this->item(
+                            strtoupper(substr((string) $row->id, 0, 8)),
+                            trim(implode(' · ', array_filter([
+                                $this->headline((string) $row->transmission_type),
+                                $row->merchant_name ?: 'BIR EIS queue',
+                            ]))),
+                            in_array($status, ['failed', 'error', 'rejected'], true) ? 'High' : 'Medium',
+                            null,
+                            null,
+                            null,
+                            [
+                                'scope' => trim(implode(' · ', array_filter([
+                                    $this->headline((string) $row->status),
+                                    'Attempt '.(int) $row->attempt_number,
+                                    $row->created_at ? Carbon::parse($row->created_at)->diffForHumans() : null,
+                                ]))),
+                                'detail' => $row->response_message,
+                            ],
+                        ),
+                    ]);
+                });
+        }
+
+        if ($this->tableExists('receipt_verifications')) {
+            DB::table('receipt_verifications')
+                ->leftJoin('transaction_receipts', 'receipt_verifications.receipt_id', '=', 'transaction_receipts.id')
+                ->select(
+                    'receipt_verifications.receipt_number',
+                    'receipt_verifications.status',
+                    'receipt_verifications.signature_valid',
+                    'receipt_verifications.verification_method',
+                    'receipt_verifications.created_at',
+                    'transaction_receipts.merchant_name'
+                )
+                ->where(function ($query): void {
+                    $query
+                        ->where('receipt_verifications.signature_valid', false)
+                        ->orWhereNotIn('receipt_verifications.status', ['verified']);
+                })
+                ->orderByDesc('receipt_verifications.created_at')
+                ->limit(3)
+                ->get()
+                ->each(function ($row) use ($queue): void {
+                    $queue->push([
+                        'priority' => ! $row->signature_valid ? 240 : 140,
+                        'item' => $this->item(
+                            (string) $row->receipt_number,
+                            trim(implode(' · ', array_filter([
+                                $row->merchant_name ?: 'Receipt verification',
+                                $this->headline((string) $row->verification_method),
+                            ]))),
+                            ! $row->signature_valid ? 'High' : $this->headline((string) $row->status),
+                            null,
+                            null,
+                            null,
+                            [
+                                'scope' => trim(implode(' · ', array_filter([
+                                    ! $row->signature_valid ? 'Signature invalid' : null,
+                                    $row->created_at ? Carbon::parse($row->created_at)->diffForHumans() : null,
+                                ]))),
+                            ],
+                        ),
+                    ]);
+                });
+        }
+
+        return $queue
+            ->sortByDesc('priority')
+            ->pluck('item')
+            ->take(6)
+            ->values()
+            ->all();
+    }
+
+    private function birReportRows(): array
+    {
+        $definitions = [
+            ['Transactions Export', 'merchant_transactions', 'Live merchant transaction ledger'],
+            ['Receipt Register', 'transaction_receipts', 'Issued electronic receipt records'],
+            ['Merchant Compliance', 'merchants', 'Registered business account compliance scores'],
+            ['Receipt Verification Log', 'receipt_verifications', 'Public and portal receipt verification records'],
+            ['Audit Events', 'audit_events', 'Operator and system audit trail'],
+            ['EIS Transmission Log', 'eis_transmissions', 'Queued and acknowledged BIR EIS transmissions'],
+        ];
+
+        return collect($definitions)
+            ->filter(fn (array $definition) => $this->tableExists($definition[1]))
+            ->map(function (array $definition) {
+                [$title, $table, $subtitle] = $definition;
+                $count = $this->count($table);
+
+                return $this->item(
+                    $title,
+                    $subtitle,
+                    $count > 0 ? 'Live' : 'Empty',
+                    null,
+                    $count,
+                    null,
+                    [
+                        'record_count' => $count,
+                    ],
+                );
+            })
             ->values()
             ->all();
     }

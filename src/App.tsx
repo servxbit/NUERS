@@ -176,6 +176,12 @@ export default function App() {
         <Route index element={<BirDashboard />} />
         <Route path="rdo-registration" element={<BirRdoManagement />} />
         <Route path="citizen-approval" element={<CitizenApprovalPage scope="bir" />} />
+        <Route path="transactions" element={<AdminTransactions />} />
+        <Route path="business-accounts" element={<AdminMerchants />} />
+        <Route path="compliance" element={<AdminCompliance />} />
+        <Route path="reports" element={<AdminReports />} />
+        <Route path="tax-filings" element={<AdminTaxFilings />} />
+        <Route path="fraud" element={<AdminRiskDetection />} />
         <Route path="tax-intelligence" element={<BirTaxIntelligenceDashboard />} />
         <Route path="vat-reconciliation" element={<BirTaxIntelligenceDashboard />} />
         <Route path="invoice-matching" element={<BirTaxIntelligenceDashboard />} />
