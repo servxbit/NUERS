@@ -10,7 +10,7 @@ import {
   Store, CreditCard, Cpu, GitBranch, Layers, Send,
   Archive, RefreshCw, Award, Bot, Plus,
   Wifi, TrendingUp, Landmark, Wallet, Brain, Fingerprint,
-  HardDrive, ShieldCheck, Map, Network, UserCheck,
+  HardDrive, ShieldCheck, Network, UserCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,30 +162,21 @@ const portalConfig: Record<PortalType, { title: string; groups: NavGroup[] }> = 
     title: "BIR Regulator Portal",
     groups: [
       {
-        section: "Revenue",
+        section: "Regulator",
         items: [
           { label: "BIR Dashboard", href: "/bir", icon: Landmark },
-          { label: "National Overview", href: "/bir", icon: Globe },
-          { label: "Regional Monitoring", href: "/bir/tax-intelligence", icon: Map },
-          { label: "Business Account Revenue", href: "/bir/business-accounts", icon: Building2 },
-          { label: "Client Transactions", href: "/bir/transactions", icon: Activity },
+          { label: "Transactions", href: "/bir/transactions", icon: Activity },
+          { label: "Business Accounts", href: "/bir/business-accounts", icon: Building2 },
+          { label: "Citizen Approval", href: "/bir/citizen-approval", icon: ShieldCheck },
         ],
       },
       {
-        section: "Compliance",
+        section: "Review",
         items: [
-          { label: "Receipt Verification", href: "/verify", icon: QrCode },
-          { label: "Compliance Scores", href: "/bir/compliance", icon: ShieldCheck },
-          { label: "Tax Filing Status", href: "/bir/tax-filings", icon: FileText },
-          { label: "Transaction Audit", href: "/bir/reports", icon: ClipboardList },
-        ],
-      },
-      {
-        section: "Reports",
-        items: [
-          { label: "Daily Reports", href: "/bir/reports", icon: Download },
-          { label: "Forecasts", href: "/bir/forecasts", icon: TrendingUp },
-          { label: "AI Recommendations", href: "/bir/ai-audit", icon: Brain },
+          { label: "Compliance Review", href: "/bir/compliance", icon: ShieldCheck },
+          { label: "Tax Filings", href: "/bir/tax-filings", icon: FileText },
+          { label: "Tax Intelligence", href: "/bir/tax-intelligence", icon: Brain },
+          { label: "Reports", href: "/bir/reports", icon: Download },
         ],
       },
     ],
@@ -974,30 +965,18 @@ const cleanSidebarGroups: Partial<Record<PortalType, NavGroup[]>> = {
       section: "Regulator",
       items: [
         { label: "Revenue Dashboard", href: "/bir", icon: Landmark },
-        { label: "RDO Registration", href: "/bir/rdo-registration", icon: UserCheck },
-        { label: "Citizen Approval", href: "/bir/citizen-approval", icon: ShieldCheck },
         { label: "Transactions", href: "/bir/transactions", icon: Activity },
         { label: "Business Accounts", href: "/bir/business-accounts", icon: Building2 },
-        { label: "Compliance", href: "/bir/compliance", icon: ShieldCheck },
-        { label: "Reports", href: "/bir/reports", icon: Download },
+        { label: "Citizen Approval", href: "/bir/citizen-approval", icon: ShieldCheck },
       ],
     },
     {
       section: "Review",
       items: [
+        { label: "Compliance Review", href: "/bir/compliance", icon: ShieldCheck },
         { label: "Tax Filings", href: "/bir/tax-filings", icon: FileText },
-        { label: "Forecasts", href: "/bir/forecasts", icon: TrendingUp },
-      ],
-    },
-    {
-      section: "Tax Intelligence",
-      items: [
-        { label: "National Tax Intel", href: "/bir/tax-intelligence", icon: Brain },
-        { label: "VAT Reconciliation", href: "/bir/vat-reconciliation", icon: Wallet },
-        { label: "Invoice Matching", href: "/bir/invoice-matching", icon: Receipt },
-        { label: "B2B Network", href: "/bir/network", icon: Network },
-        { label: "Risk Scoring", href: "/bir/risk-scoring", icon: ShieldAlert },
-        { label: "AI Audit Assistant", href: "/bir/ai-audit", icon: Bot },
+        { label: "Tax Intelligence", href: "/bir/tax-intelligence", icon: Brain },
+        { label: "Reports", href: "/bir/reports", icon: Download },
       ],
     },
   ],

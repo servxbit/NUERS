@@ -250,6 +250,9 @@ class DashboardController extends Controller
                 'revenue_by_region' => $this->birRevenueByRegion(),
             ],
             'lists' => [
+                'jurisdiction_filters' => $this->birJurisdictionFilterRows(),
+                'transaction_watchlist' => $this->birTransactionWatchlistRows(),
+                'rdo_coverage' => $this->birRdoCoverageRows(),
                 'merchant_compliance' => $this->merchantComplianceRows(),
                 'audit_queue' => $this->birAuditQueue(),
                 'reports' => $this->birReportRows(),
@@ -401,6 +404,241 @@ class DashboardController extends Controller
                 'tax' => 0,
                 'compliance' => round((float) ($row->compliance_score ?? 0), 1),
             ])
+            ->values()
+            ->all();
+    }
+
+    private function birJurisdictionFilterRows(): array
+    {
+        $items = collect();
+
+        if ($this->tableExists('merchant_transactions')) {
+            DB::table('merchant_transactions')
+                ->selectRaw("COALESCE(NULLIF(region, ''), 'Unclassified') as value")
+                ->selectRaw('COUNT(*) as total_count')
+                ->selectRaw('SUM(amount) as total_amount')
+                ->groupBy('value')
+                ->orderBy('value')
+                ->get()
+                ->each(function ($row) use ($items): void {
+                    $items->push($this->item(
+                        (string) $row->value,
+                        "{$this->compactNumber((int) $row->total_count)} transactions",
+                        'Region',
+                        null,
+                        (int) $row->total_count,
+                        (float) $row->total_amount,
+                        [
+                            'type' => 'region',
+                            'value' => $row->value,
+                            'display' => (string) $row->value,
+                            'amount_display' => $this->money((float) $row->total_amount),
+                        ],
+                    ));
+                });
+
+            if (Schema::hasColumn('merchant_transactions', 'rdo_code')) {
+                $rdoNameExpression = Schema::hasColumn('merchant_transactions', 'rdo_name')
+                    ? "COALESCE(NULLIF(rdo_name, ''), CONCAT('RDO ', COALESCE(NULLIF(rdo_code, ''), 'Unassigned')))"
+                    : "CONCAT('RDO ', COALESCE(NULLIF(rdo_code, ''), 'Unassigned'))";
+
+                DB::table('merchant_transactions')
+                    ->selectRaw("COALESCE(NULLIF(rdo_code, ''), 'Unassigned') as code")
+                    ->selectRaw("{$rdoNameExpression} as name")
+                    ->selectRaw('COUNT(*) as total_count')
+                    ->selectRaw('SUM(amount) as total_amount')
+                    ->groupBy('code', 'name')
+                    ->orderBy('code')
+                    ->get()
+                    ->each(function ($row) use ($items): void {
+                        $display = trim(((string) $row->code === 'Unassigned' ? '' : 'RDO '.$row->code.' · ').(string) $row->name) ?: 'Unassigned RDO';
+
+                        $items->push($this->item(
+                            $display,
+                            "{$this->compactNumber((int) $row->total_count)} transactions",
+                            'RDO',
+                            null,
+                            (int) $row->total_count,
+                            (float) $row->total_amount,
+                            [
+                                'type' => 'rdo',
+                                'value' => $row->code,
+                                'display' => $display,
+                                'amount_display' => $this->money((float) $row->total_amount),
+                            ],
+                        ));
+                    });
+            }
+
+            DB::table('merchant_transactions')
+                ->selectRaw("COALESCE(NULLIF(status, ''), 'unknown') as value")
+                ->selectRaw('COUNT(*) as total_count')
+                ->selectRaw('SUM(amount) as total_amount')
+                ->groupBy('value')
+                ->orderBy('value')
+                ->get()
+                ->each(function ($row) use ($items): void {
+                    $items->push($this->item(
+                        $this->headline((string) $row->value),
+                        "{$this->compactNumber((int) $row->total_count)} transactions",
+                        'Status',
+                        null,
+                        (int) $row->total_count,
+                        (float) $row->total_amount,
+                        [
+                            'type' => 'status',
+                            'value' => $row->value,
+                            'display' => $this->headline((string) $row->value),
+                            'amount_display' => $this->money((float) $row->total_amount),
+                        ],
+                    ));
+                });
+        }
+
+        return $items->values()->all();
+    }
+
+    private function birTransactionWatchlistRows(): array
+    {
+        if (! $this->tableExists('merchant_transactions')) {
+            return [];
+        }
+
+        $hasRdo = Schema::hasColumn('merchant_transactions', 'rdo_code');
+        $hasRdoName = Schema::hasColumn('merchant_transactions', 'rdo_name');
+        $hasSource = Schema::hasColumn('merchant_transactions', 'source_system');
+        $hasDocument = Schema::hasColumn('merchant_transactions', 'document_type');
+
+        $select = [
+            'transactions.transaction_ref',
+            'transactions.amount',
+            'transactions.vat_amount',
+            'transactions.payment_method',
+            'transactions.region',
+            'transactions.channel',
+            'transactions.transaction_type',
+            'transactions.customer_name',
+            'transactions.customer_tin',
+            'transactions.status',
+            'transactions.created_at',
+            'merchants.business_name',
+            'merchants.tin as merchant_tin',
+            'merchants.compliance_score',
+            'merchants.rdo_code as merchant_rdo_code',
+            'merchants.rdo_name as merchant_rdo_name',
+        ];
+
+        if ($hasRdo) {
+            $select[] = 'transactions.rdo_code';
+        }
+
+        if ($hasRdoName) {
+            $select[] = 'transactions.rdo_name';
+        }
+
+        if ($hasSource) {
+            $select[] = 'transactions.source_system';
+        }
+
+        if ($hasDocument) {
+            $select[] = 'transactions.document_type';
+        }
+
+        return DB::table('merchant_transactions as transactions')
+            ->leftJoin('merchants', 'transactions.merchant_id', '=', 'merchants.id')
+            ->select($select)
+            ->orderByDesc('transactions.created_at')
+            ->limit(16)
+            ->get()
+            ->map(function ($row) use ($hasRdo, $hasRdoName, $hasSource, $hasDocument) {
+                $rdoCode = $hasRdo ? ($row->rdo_code ?: $row->merchant_rdo_code) : $row->merchant_rdo_code;
+                $rdoName = $hasRdoName ? ($row->rdo_name ?: $row->merchant_rdo_name) : $row->merchant_rdo_name;
+                $region = $row->region ?: 'Unclassified';
+
+                return $this->item(
+                    (string) ($row->transaction_ref ?: 'Unreferenced transaction'),
+                    trim(implode(' · ', array_filter([
+                        $row->business_name ?: 'Unknown business account',
+                        $row->customer_tin ? 'TIN '.$row->customer_tin : null,
+                    ]))),
+                    $this->headline((string) $row->status),
+                    null,
+                    (float) $row->amount,
+                    (float) $row->vat_amount,
+                    [
+                        'merchant' => $row->business_name ?: 'Unknown business account',
+                        'merchant_tin' => $row->merchant_tin,
+                        'customer' => $row->customer_name,
+                        'customer_tin' => $row->customer_tin,
+                        'region' => $region,
+                        'rdo_code' => $rdoCode ?: 'Unassigned',
+                        'rdo_name' => $rdoName ?: 'Unassigned RDO',
+                        'channel' => $this->headline((string) $row->channel),
+                        'payment_method' => $this->headline((string) $row->payment_method),
+                        'transaction_type' => $this->headline((string) $row->transaction_type),
+                        'status_value' => $row->status,
+                        'source_system' => $hasSource ? $this->headline((string) $row->source_system) : null,
+                        'document_type' => $hasDocument ? $this->headline((string) $row->document_type) : null,
+                        'compliance_score' => (float) ($row->compliance_score ?? 0),
+                        'created_at' => $row->created_at,
+                        'amount_display' => $this->money((float) $row->amount),
+                        'vat_display' => $this->money((float) $row->vat_amount),
+                    ],
+                );
+            })
+            ->values()
+            ->all();
+    }
+
+    private function birRdoCoverageRows(): array
+    {
+        if (! $this->tableExists('rdo_offices')) {
+            return [];
+        }
+
+        $query = DB::table('rdo_offices as rdos')
+            ->select(
+                'rdos.rdo_code',
+                'rdos.rdo_name',
+                'rdos.region',
+                'rdos.status',
+            );
+
+        if ($this->tableExists('merchant_transactions') && Schema::hasColumn('merchant_transactions', 'rdo_code')) {
+            $query
+                ->leftJoin('merchant_transactions as transactions', function ($join): void {
+                    $join->on('transactions.rdo_code', '=', 'rdos.rdo_code');
+                })
+                ->selectRaw('COUNT(transactions.id) as transaction_count')
+                ->selectRaw('COALESCE(SUM(transactions.amount), 0) as transaction_amount')
+                ->groupBy('rdos.rdo_code', 'rdos.rdo_name', 'rdos.region', 'rdos.status');
+        } else {
+            $query
+                ->selectRaw('0 as transaction_count')
+                ->selectRaw('0 as transaction_amount');
+        }
+
+        return $query
+            ->orderBy('rdos.rdo_code')
+            ->limit(8)
+            ->get()
+            ->map(fn ($row) => $this->item(
+                'RDO '.$row->rdo_code,
+                trim(implode(' · ', array_filter([
+                    $row->rdo_name,
+                    $row->region,
+                ]))),
+                $this->headline((string) $row->status),
+                null,
+                (int) $row->transaction_count,
+                (float) $row->transaction_amount,
+                [
+                    'rdo_code' => $row->rdo_code,
+                    'rdo_name' => $row->rdo_name,
+                    'region' => $row->region,
+                    'amount_display' => $this->money((float) $row->transaction_amount),
+                ],
+            ))
             ->values()
             ->all();
     }
@@ -1885,6 +2123,7 @@ class DashboardController extends Controller
                     'logo_url' => $hasLogo ? ($merchant->logo_url ?? null) : null,
                     'email' => $merchant->email ?: $merchant->merchant_account_email,
                     'sector' => $merchant->sector,
+                    'region' => $merchant->region,
                     'rdo_code' => $merchant->rdo_code,
                     'rdo_name' => $merchant->rdo_name,
                 ],
